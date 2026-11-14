@@ -11,20 +11,23 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        Group {
-            if model.games.isEmpty && !model.scanning {
-                EmptyLibrary()
-            } else {
-                ScrollView {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if !model.stores.isEmpty && search.isEmpty {
+                    StoresRow()
+                }
+                if model.games.isEmpty && !model.scanning {
+                    EmptyLibrary()
+                } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 20)], spacing: 24) {
                         ForEach(filtered) { game in
                             GameCard(game: game, recipe: model.recipe(for: game), showBottle: model.bottles.count > 1)
                                 .contextMenu { GameMenu(game: game, settingsFor: $settingsFor) }
                         }
                     }
-                    .padding(24)
                 }
             }
+            .padding(24)
         }
         .navigationTitle("Library")
         .searchable(text: $search, placement: .toolbar, prompt: "Search games")
@@ -159,25 +162,90 @@ actor ArtworkCache {
     }
 }
 
+struct StoresRow: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Stores").font(.headline).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(model.stores) { store in StoreTile(store: store, showBottle: model.bottles.count > 1) }
+                }
+            }
+        }
+    }
+}
+
+struct StoreTile: View {
+    @Environment(AppModel.self) private var model
+    let store: InstalledStore
+    let showBottle: Bool
+    @State private var icon: NSImage?
+    @State private var hovering = false
+
+    var body: some View {
+        Button { model.open(store) } label: {
+            HStack(spacing: 10) {
+                Group {
+                    if let icon { Image(nsImage: icon).resizable() } else { Image(systemName: "bag").resizable().padding(6) }
+                }
+                .frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(store.name).font(.callout.weight(.medium))
+                    Text(showBottle ? "Open · \(model.bottle(store.bottleID)?.name ?? "")" : "Open").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(.quaternary.opacity(hovering ? 1 : 0.6), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Open \(store.name)")
+        .task(id: store.id) {
+            let exe = store.executable
+            icon = await Task.detached {
+                (try? PEFile(url: exe)).flatMap { $0.iconData() }.flatMap { NSImage(data: $0) }
+            }.value
+        }
+    }
+}
+
 struct EmptyLibrary: View {
     @Environment(AppModel.self) private var model
+
+    private var missingStores: [LauncherInfo] {
+        let installed = Set(model.stores.map(\.launcherID))
+        return Catalog.launchers().filter { !installed.contains($0.id) }.prefix(3).map { $0 }
+    }
 
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: "gamecontroller").font(.system(size: 54)).foregroundStyle(.tertiary)
-            Text("Your library is empty").font(.title2.weight(.semibold))
-            Text("Install a game store, or drag a Windows game's .exe onto this window.")
-                .foregroundStyle(.secondary)
-            if let b = model.bottle(model.defaultBottleID ?? "") {
+            if model.stores.isEmpty {
+                Text("Your library is empty").font(.title2.weight(.semibold))
+                Text("Install a game store, or drag a Windows game's .exe onto this window.")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No games yet").font(.title2.weight(.semibold))
+                Text("Install games in \(ListFormatter.localizedString(byJoining: model.stores.map(\.name))) and they'll appear here automatically. You can also drag a Windows game's .exe onto this window.")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
                 HStack {
-                    ForEach(Catalog.launchers().prefix(3)) { l in
+                    ForEach(model.stores) { s in Button("Open \(s.name)") { model.open(s) }.buttonStyle(.borderedProminent) }
+                }
+                .controlSize(.large)
+            }
+            if let b = model.bottle(model.defaultBottleID ?? ""), !missingStores.isEmpty {
+                HStack {
+                    ForEach(missingStores) { l in
                         Button("Install \(l.name)") { model.installLauncher(l, in: b) }
                             .disabled(model.busy)
                     }
                 }
-                .controlSize(.large)
+                .controlSize(model.stores.isEmpty ? .large : .regular)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
     }
 }

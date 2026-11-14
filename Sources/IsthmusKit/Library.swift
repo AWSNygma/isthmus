@@ -40,7 +40,42 @@ public struct Game: Sendable, Identifiable, Hashable {
     }
 }
 
+/// A store client installed in a bottle.
+public struct InstalledStore: Sendable, Identifiable, Hashable {
+    public var id: String { "\(bottleID):\(launcherID)" }
+    public var bottleID: String
+    public var launcherID: String
+    public var name: String
+    public var executable: URL
+}
+
 public enum GameLibrary {
+    public static func stores(_ bottle: Bottle) -> [InstalledStore] {
+        Catalog.launchers().compactMap { l in
+            let exe = bottle.unixPath(forWindowsPath: l.executable)
+            guard FileManager.default.fileExists(atPath: exe.path) else { return nil }
+            return InstalledStore(bottleID: bottle.id, launcherID: l.id, name: l.name, executable: exe)
+        }
+    }
+
+    /// Cheap change detector: modification dates of the folders stores write
+    /// to when a game is installed or removed. Rescan only when it changes.
+    public static func fingerprint(_ bottle: Bottle) -> String {
+        var dirs = [bottle.configURL,
+                    bottle.unixPath(forWindowsPath: "C:\\ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests"),
+                    bottle.unixPath(forWindowsPath: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs"),
+                    bottle.unixPath(forWindowsPath: "C:\\GOG Games"),
+                    bottle.unixPath(forWindowsPath: "C:\\Program Files (x86)\\GOG Galaxy\\Games")]
+        dirs += SteamLibrary.libraryFolders(bottle).map { $0.appendingPathComponent("steamapps") }
+        dirs += Catalog.launchers().map { bottle.unixPath(forWindowsPath: $0.executable) }
+        // Start Menu entries usually live one level down (Programs/<Vendor>/Game.lnk).
+        if let subs = try? FileManager.default.contentsOfDirectory(at: dirs[2], includingPropertiesForKeys: nil) { dirs += subs }
+        return dirs.map { u -> String in
+            let d = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return "\(u.lastPathComponent)=\(d?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: "|")
+    }
+
     public static func scan(_ bottle: Bottle) -> [Game] {
         var games = SteamLibrary.scan(bottle) + EpicLibrary.scan(bottle) + GOGLibrary.scan(bottle)
         for p in bottle.config.pinned {

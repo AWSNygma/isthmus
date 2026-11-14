@@ -31,6 +31,8 @@ final class AppModel {
     private(set) var engines: [Engine] = []
     private(set) var bottles: [Bottle] = []
     private(set) var games: [Game] = []
+    private(set) var stores: [InstalledStore] = []
+    private var libraryFingerprint = ""
     private(set) var d3dmetal: D3DMetalInstall?
     private(set) var checks: [Doctor.Check] = []
     private(set) var remoteEngine: RemoteEngine?
@@ -54,6 +56,7 @@ final class AppModel {
         Task { [weak self] in
             while !Task.isCancelled {
                 self?.pollRunning()
+                self?.refreshGamesIfChanged()
                 try? await Task.sleep(for: .seconds(3))
             }
         }
@@ -88,8 +91,25 @@ final class AppModel {
         let bottles = self.bottles
         scanning = true
         Task.detached(priority: .userInitiated) {
+            let print = bottles.map { GameLibrary.fingerprint($0) }.joined(separator: "#")
             let found = bottles.flatMap { GameLibrary.scan($0) }
-            await MainActor.run { self.games = found; self.scanning = false }
+            let stores = bottles.flatMap { GameLibrary.stores($0) }
+            await MainActor.run {
+                self.games = found; self.stores = stores
+                self.libraryFingerprint = print
+                self.scanning = false
+            }
+        }
+    }
+
+    /// Rescan when a store installs/removes something (checked every few seconds).
+    private func refreshGamesIfChanged() {
+        guard !scanning else { return }
+        let bottles = self.bottles
+        let known = libraryFingerprint
+        Task.detached(priority: .utility) {
+            let now = bottles.map { GameLibrary.fingerprint($0) }.joined(separator: "#")
+            if now != known { await MainActor.run { self.refreshGames() } }
         }
     }
 
@@ -277,6 +297,11 @@ final class AppModel {
 
     func run(_ url: URL, in bottle: Bottle, arguments: [String] = []) {
         launch(LaunchTarget(program: url.path, arguments: arguments), title: url.deletingPathExtension().lastPathComponent, in: bottle)
+    }
+
+    func open(_ store: InstalledStore) {
+        guard let b = bottle(store.bottleID) else { return }
+        launch(LaunchTarget(program: store.executable.path), title: store.name, in: b)
     }
 
     func runTool(_ tool: String, in bottle: Bottle) {

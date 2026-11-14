@@ -361,3 +361,24 @@ final class SelfTestParseTests: XCTestCase {
         XCTAssertNil(Doctor.appLocationProblem("/usr/local/bin/isthmus"))
     }
 }
+
+final class LibraryRefreshTests: TempHomeTestCase {
+    func testStoresAndFingerprint() throws {
+        let b = try BottleStore(paths: paths).create(name: "Lib")
+        XCTAssertTrue(GameLibrary.stores(b).isEmpty)
+        let steam = b.unixPath(forWindowsPath: SteamLibrary.steamExe)
+        let apps = steam.deletingLastPathComponent().appendingPathComponent("steamapps")
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let before = GameLibrary.fingerprint(b)
+        try Data([0x4D, 0x5A]).write(to: steam)
+        XCTAssertEqual(GameLibrary.stores(b).map(\.launcherID), ["steam"])
+        let afterStore = GameLibrary.fingerprint(b)
+        XCTAssertNotEqual(before, afterStore, "installing a store changes the fingerprint")
+
+        Thread.sleep(forTimeInterval: 1.1)   // directory mtimes have 1 s resolution on some volumes
+        try #""AppState" { "appid" "9" "name" "New" "StateFlags" "4" "installdir" "n" }"#
+            .write(to: apps.appendingPathComponent("appmanifest_9.acf"), atomically: true, encoding: .utf8)
+        XCTAssertNotEqual(afterStore, GameLibrary.fingerprint(b), "a game install changes the fingerprint")
+        XCTAssertEqual(GameLibrary.scan(b).map(\.name), ["New"])
+    }
+}
