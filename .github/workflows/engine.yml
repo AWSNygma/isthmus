@@ -17,7 +17,7 @@ jobs:
     env:
       ISTHMUS_WORK: ${{ github.workspace }}/.work
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Rosetta 2
         run: sudo softwareupdate --install-rosetta --agree-to-license || true
@@ -26,7 +26,7 @@ jobs:
         run: brew install mingw-w64 bison gettext pkgconf ccache micromamba xz
 
       - name: ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .work/ccache
           key: ccache-${{ hashFiles('engine/engine.env', 'engine/patches/**') }}-${{ github.run_id }}
@@ -51,7 +51,7 @@ jobs:
         run: |
           tests/integration/run.sh .work/out/isthmus-engine-*.tar.xz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: isthmus-engine
           path: |

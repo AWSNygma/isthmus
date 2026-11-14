@@ -113,11 +113,18 @@ the real thing:
 
 ## CI
 
-The three workflows are in the repo but have never run on GitHub. The last
-push was made without the `workflow` token scope, so they were committed
-separately once it was granted. Expect a first-run shakeout, especially for
-the engine job. Hosted macOS runners are VMs with limited Metal support, so
-the GPU probes there are informational.
+- **CI** (`ci.yml`) runs on every push to `main` and on pull requests, on
+  GitHub's macOS 26 arm64 runners. It runs the unit tests, validates the
+  recipe JSON, builds the Windows probes, and builds and uploads the app
+  bundle. It has passed.
+- **Release** (`release.yml`) builds and publishes the app when a `v*` tag is
+  pushed. It signs and notarizes when the Developer ID secrets are set. It
+  hasn't run yet: v0.1.0 through v0.2.1 were built locally with the same
+  script.
+- **Engine** (`engine.yml`) builds the engine from source when run manually
+  or when an `engine-*` tag is pushed. It hasn't run yet; the published
+  engine was built locally with the same script. Hosted runners are VMs
+  with limited Metal support, so the GPU probes there are informational.
 
 ## Next
 
@@ -125,6 +132,6 @@ the GPU probes there are informational.
 2. Import D3DMetal and run the self-test, to settle whether it works with
    the CodeWeavers 26.3 hooks.
 3. Sign and notarize the app, and add Sparkle app updates.
-4. Run the engine build in CI and publish engines from there.
+4. Run the engine workflow once, and publish future engines from CI.
 5. Investigate Game Mode via a bundled loader.
 6. Test the other store launchers and the runtime components.
