@@ -28,6 +28,9 @@ let package = Package(
         .testTarget(
             name: "IsthmusKitTests",
             dependencies: ["IsthmusKit"],
+            // Explicit lowercase path: git stores it as tests/ (it shares the
+            // folder with tests/winprobes), which matters on case-sensitive checkouts.
+            path: "tests/IsthmusKitTests",
             resources: [.copy("Fixtures")]
         ),
     ]
