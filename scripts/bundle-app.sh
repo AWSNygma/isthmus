@@ -126,5 +126,5 @@ if [[ -n "${NOTARIZE_PROFILE:-}" ]]; then
   xcrun stapler staple "$APP"
 fi
 
-shasum -a 256 "$ZIP" "$DMG" | tee "$DIST/SHA256SUMS"
+(cd "$DIST" && shasum -a 256 "$(basename "$ZIP")" "$(basename "$DMG")" | tee SHA256SUMS)
 echo "==> done: $APP"
