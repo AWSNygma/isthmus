@@ -14,7 +14,12 @@ struct BottleDetailView: View {
         if let original = model.bottle(bottleID) {
             let binding = Binding<Bottle>(
                 get: { draft ?? original },
-                set: { draft = $0; model.save($0) }
+                set: { new in
+                    draft = new
+                    // Only the fields this page edits; components/pinned/programs
+                    // may be changing elsewhere (CLI, installs in progress).
+                    model.update(new.id) { c in c.settings = new.config.settings; c.engineVersion = new.config.engineVersion }
+                }
             )
             Form {
                 header(original)
@@ -55,7 +60,9 @@ struct BottleDetailView: View {
             .confirmationDialog("Delete \"\(original.name)\"?", isPresented: $confirmDelete) {
                 Button("Move to Trash", role: .destructive) { model.delete(original) }
             } message: {
-                Text("The bottle and everything installed in it, including saved games stored inside it, moves to the Trash.")
+                Text(model.isRunning(bottleID: original.id)
+                     ? "Programs in this bottle are running and will be stopped. The bottle and everything in it, including saved games stored inside it, moves to the Trash."
+                     : "The bottle and everything installed in it, including saved games stored inside it, moves to the Trash.")
             }
         }
     }
@@ -321,15 +328,17 @@ struct GameSettingsSheet: View {
         .frame(width: 520, height: 600)
         .onAppear {
             if let b = model.bottle(game.bottleID), let key { settings = b.config.programs[key] ?? ProgramSettings() }
-            argText = (settings.arguments ?? []).joined(separator: " ")
+            argText = (settings.arguments ?? []).map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
         }
     }
 
     private func save() {
-        guard var b = model.bottle(game.bottleID), let key else { return }
-        let args = argText.split(separator: " ").map(String.init)
+        guard let key else { return }
+        let args = ArgumentSplitter.split(argText)
         settings.arguments = args.isEmpty ? nil : args
-        if settings == ProgramSettings() { b.config.programs.removeValue(forKey: key) } else { b.config.programs[key] = settings }
-        model.save(b)
+        let s = settings
+        model.update(game.bottleID) { c in
+            if s == ProgramSettings() { c.programs.removeValue(forKey: key) } else { c.programs[key] = s }
+        }
     }
 }

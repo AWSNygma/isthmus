@@ -9,7 +9,7 @@ struct IsthmusCLI: AsyncParsableCommand {
         abstract: "Run Windows games on Apple silicon Macs.",
         version: Isthmus.version,
         subcommands: [Doctor.self, EngineCmd.self, BottleCmd.self, Run.self, Play.self, Games.self,
-                      Install.self, Kill.self, D3DMetalCmd.self, Recipes.self, Shortcut.self]
+                      Install.self, Kill.self, D3DMetalCmd.self, Recipes.self, Shortcut.self, SelfTestCmd.self]
     )
 }
 
@@ -50,6 +50,9 @@ struct Doctor: ParsableCommand {
 
     func run() throws {
         var failed = false
+        for d in BottleStore(paths: common.paths).damaged() {
+            print("! Bottle folder \(d.lastPathComponent) has a missing or unreadable bottle.json")
+        }
         for c in IsthmusKit.Doctor(paths: common.paths).run() {
             let mark = switch c.level { case .ok: "✓"; case .warning: "!"; case .error: "✗" }
             if c.level == .error { failed = true }
@@ -203,10 +206,10 @@ struct BottleCmd: AsyncParsableCommand {
         @Argument var value: String
 
         func run() throws {
-            var b = try BottleStore(paths: common.paths).bottle(bottle)
-            try BottleSettingKey.apply(key: key, value: value, to: &b.config.settings)
-            try b.save()
-            try BottleSetup(paths: common.paths).applySettings(&b)
+            let store = BottleStore(paths: common.paths)
+            let id = try store.bottle(bottle).id
+            var b = try store.update(id) { try BottleSettingKey.apply(key: key, value: value, to: &$0.settings) }
+            if b.isInitialized { try BottleSetup(paths: common.paths).applySettings(&b) }
             print("\(key) = \(value)")
         }
     }
@@ -273,26 +276,19 @@ struct LaunchOptions: ParsableArguments {
     @Option(name: .shortAndLong, help: "Bottle id or name.") var bottle: String
     @Option(help: "Force a graphics backend for this launch.") var graphics: String?
     @Flag(help: "Return immediately instead of waiting for the program to exit.") var detach = false
+    @Flag(help: "Wait for the program, keep the display awake, and exit 0 once it started (used by Launchpad shortcuts).") var hold = false
     @Flag(help: "Print Wine output to the terminal instead of the log file.") var verbose = false
 }
 
 func launch(target: LaunchTarget, title: String, options: LaunchOptions, paths: IsthmusPaths) async throws {
-    var b = try BottleStore(paths: paths).bottle(options.bottle)
-    try BottleSetup(paths: paths).applySettings(&b)
+    let b = try BottleStore(paths: paths).bottle(options.bottle)
     var target = target
     if let g = options.graphics {
         guard let backend = GraphicsBackend(rawValue: g) else { throw ValidationError("Unknown graphics backend \(g).") }
         target.graphicsOverride = backend
     }
-    let planner = LaunchPlanner(paths: paths)
-    var plan = try planner.plan(bottle: b, target: target)
-    if let r = plan.recipe, r.status == .blocked {
-        throw ValidationError("\(r.name) can't run under Isthmus: \(r.notes ?? "blocked by anti-cheat.")")
-    }
-    for c in plan.missingComponents {
-        try await BottleSetup(paths: paths).install(component: c, into: &b, progress: stepPrinter)
-    }
-    if !plan.missingComponents.isEmpty { plan = try planner.plan(bottle: b, target: target) }
+    let service = LaunchService(paths: paths)
+    let plan = try await service.prepare(bottle: b, target: target, progress: stepPrinter)
     stepPrinter("Launching \(title) with \(plan.backend.displayName)\(plan.recipe.map { " (recipe: \($0.id))" } ?? "")")
 
     if options.verbose {
@@ -300,9 +296,16 @@ func launch(target: LaunchTarget, title: String, options: LaunchOptions, paths: 
         print(r.output)
         throw ExitCode(r.status)
     }
-    let running = try WineRunner.launch(plan, bottle: b, title: title)
+    let running = try service.start(plan, bottle: b, title: title)
+    // A store client (Steam, Epic) stays open long after the game; don't keep
+    // the display awake for it.
+    if options.hold && plan.launcherID != nil { return }
     if options.detach { print("Started (pid \(running.pid)). Log: \(running.logURL.path)"); return }
+    // Keep the display awake while the game runs (controllers don't count as user activity).
+    let awake = PowerAssertion(reason: "Playing \(title)")
     let status = running.waitUntilExit()
+    awake.release()
+    if options.hold { return }   // the game ran; its own exit code isn't a launch failure
     if status != 0 { FileHandle.standardError.write(Data("Exited with status \(status). Log: \(running.logURL.path)\n".utf8)) }
     throw ExitCode(status)
 }
@@ -377,6 +380,7 @@ struct Install: AsyncParsableCommand {
     func run() async throws {
         var b = try BottleStore(paths: common.paths).bottle(bottle)
         let setup = BottleSetup(paths: common.paths)
+        if !b.isInitialized { b = try setup.initialize(b, progress: stepPrinter) }
         if Catalog.launcher(item) != nil {
             let exe = try await setup.install(launcher: item, into: b, progress: stepPrinter)
             print(exe.map { "Installed: \($0.path)" } ?? "Installer finished, but the launcher wasn't found where expected.")
@@ -457,5 +461,41 @@ struct Shortcut: ParsableCommand {
         let cli = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let app = try ShortcutMaker(cli: cli).create(for: g, in: b)
         print("Created \(app.path)")
+    }
+}
+
+// MARK: selftest
+
+struct SelfTestCmd: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "selftest",
+        abstract: "Run the built-in Windows test programs on every graphics backend.")
+    @OptionGroup var common: Common
+    @Option(name: .shortAndLong, help: "Bottle to test in (default: a temporary one).") var bottle: String?
+    @Option(help: "Folder with the probe .exe files.") var probes: String?
+
+    func run() async throws {
+        let store = BottleStore(paths: common.paths)
+        var temp: Bottle?
+        let b: Bottle
+        if let bottle { b = try store.bottle(bottle) } else {
+            stepPrinter("Creating a temporary bottle…")
+            let t = try store.create(name: "Self-Test \(UUID().uuidString.prefix(6))")
+            temp = try BottleSetup(paths: common.paths).initialize(t, progress: stepPrinter)
+            b = temp!
+        }
+        defer {
+            if let temp {
+                try? WineRunner.killAll(bottle: temp, paths: common.paths)
+                try? FileManager.default.removeItem(at: temp.url)
+            }
+        }
+        let test = SelfTest(paths: common.paths, probes: probes.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) })
+        let results = try await test.run(bottle: b) { r in
+            let mark = switch r.outcome { case .pass: "✓"; case .skip: "–"; case .fail: r.required ? "✗" : "!" }
+            print("\(mark) \(r.name)  \(r.detail)")
+        }
+        let failed = results.filter { $0.outcome == .fail && $0.required }
+        print(failed.isEmpty ? "All required checks passed." : "\(failed.count) required check(s) failed.")
+        if !failed.isEmpty { throw ExitCode(1) }
     }
 }

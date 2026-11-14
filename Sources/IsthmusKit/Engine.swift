@@ -87,9 +87,37 @@ public struct EngineManager: Sendable {
     }
 
     /// Install from a local `.tar.xz` produced by `engine/build.sh`.
+    /// Bottles that would run on `version` right now.
+    public func bottles(using version: String) -> [Bottle] {
+        let newest = installed().first?.version
+        return BottleStore(paths: paths).list().filter { ($0.config.engineVersion ?? newest) == version }
+    }
+
+    /// Refuse to touch an engine whose files running Wine processes have mapped.
+    func ensureNotInUse(_ version: String, action: String) throws {
+        let busy = bottles(using: version).filter { WineServer.isRunning($0) }
+        if !busy.isEmpty {
+            throw IsthmusError.unsupported("Can't \(action) engine \(version) while programs are running in \(busy.map { "\"\($0.name)\"" }.joined(separator: ", ")). Quit them first.")
+        }
+    }
+
+    static func freeSpace(at url: URL) -> Int64? {
+        (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
+    }
+
+    /// An xz engine archive unpacks to roughly 4.5× its size.
+    func ensureSpace(forArchiveBytes bytes: Int64) throws {
+        let need = bytes * 5 + (512 << 20)
+        if let free = Self.freeSpace(at: paths.root), free < need {
+            throw IsthmusError.unsupported("Not enough disk space: the engine needs about \(need >> 30 + 1) GB free, and \(free >> 30) GB is available.")
+        }
+    }
+
     @discardableResult
     public func install(archive: URL, expectedSHA256: String? = nil) throws -> Engine {
         try paths.ensure()
+        let size = (try? archive.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        try ensureSpace(forArchiveBytes: size)
         if let expected = expectedSHA256?.lowercased(), !expected.isEmpty {
             let actual = try Self.sha256(of: archive)
             guard actual == expected else { throw IsthmusError.checksumMismatch(expected: expected, actual: actual) }
@@ -106,7 +134,10 @@ public struct EngineManager: Sendable {
         try candidate.validate()
 
         let dest = paths.engines.appendingPathComponent(candidate.version, isDirectory: true)
-        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+        if fm.fileExists(atPath: dest.path) {
+            try ensureNotInUse(candidate.version, action: "replace")
+            try fm.removeItem(at: dest)
+        }
         try fm.moveItem(at: top[0], to: dest)
         // Downloaded archives carry the quarantine flag; Wine's loader and
         // dylibs must not be quarantined or Gatekeeper prompts per-file.
@@ -117,6 +148,14 @@ public struct EngineManager: Sendable {
 
     public func remove(_ version: String) throws {
         let e = try engine(version)
+        let pinned = BottleStore(paths: paths).list().filter { $0.config.engineVersion == version }
+        if !pinned.isEmpty {
+            throw IsthmusError.unsupported("Engine \(version) is selected by \(pinned.map { "\"\($0.name)\"" }.joined(separator: ", ")). Switch those bottles to another engine first.")
+        }
+        if installed().count == 1, !BottleStore(paths: paths).list().isEmpty {
+            throw IsthmusError.unsupported("Engine \(version) is the only engine, and your bottles need one. Install another engine first.")
+        }
+        try ensureNotInUse(version, action: "remove")
         try FileManager.default.removeItem(at: e.url)
         RuntimeOverlay.purge(paths: paths, engineVersion: version)
     }
@@ -127,7 +166,30 @@ public struct EngineManager: Sendable {
         try await availableRemote(session: session).first
     }
 
+    /// Static manifest in the repo, used when the GitHub API is unreachable
+    /// or rate-limited (60 requests/hour per IP without a token).
+    public struct LatestManifest: Codable, Sendable { public var version: String; public var url: URL; public var sha256: String }
+
     public func availableRemote(session: URLSession = .shared) async throws -> [RemoteEngine] {
+        do {
+            let list = try await releasesFromAPI(session: session)
+            if !list.isEmpty { return list }
+        } catch {
+            if let fallback = try? await latestFromManifest(session: session) { return [fallback] }
+            throw error
+        }
+        return (try? await latestFromManifest(session: session)).map { [$0] } ?? []
+    }
+
+    func latestFromManifest(session: URLSession) async throws -> RemoteEngine {
+        let url = URL(string: "https://raw.githubusercontent.com/\(repository)/main/engine/latest.json")!
+        let (data, response) = try await session.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw IsthmusError.download("engine manifest unavailable") }
+        let m = try JSONDecoder().decode(LatestManifest.self, from: data)
+        return RemoteEngine(version: m.version, archiveURL: m.url, sha256: m.sha256, notes: nil)
+    }
+
+    func releasesFromAPI(session: URLSession) async throws -> [RemoteEngine] {
         let releases = try await GitHub.releases(repository: repository, session: session)
         return releases.compactMap { rel -> RemoteEngine? in
             guard rel.tagName.hasPrefix("engine-"), !rel.draft else { return nil }
@@ -145,10 +207,11 @@ public struct EngineManager: Sendable {
     public func download(_ remote: RemoteEngine, session: URLSession = .shared,
                          progress: (@Sendable (Double) -> Void)? = nil) async throws -> Engine {
         try paths.ensure()
+        try ensureSpace(forArchiveBytes: 300 << 20)
         let archive = paths.cache.appendingPathComponent(remote.archiveURL.lastPathComponent)
         try await Downloader.fetch(remote.archiveURL, to: archive, session: session, progress: progress)
-        var expected: String?
-        if remote.sha256 != nil {
+        var expected: String? = (remote.sha256?.isEmpty == false) ? remote.sha256 : nil
+        if expected == nil, remote.sha256 != nil {
             let shaURL = URL(string: remote.archiveURL.absoluteString + ".sha256")!
             let (data, _) = try await session.data(from: shaURL)
             expected = String(decoding: data, as: UTF8.self).split(separator: " ").first.map(String.init)
@@ -169,5 +232,5 @@ public struct EngineManager: Sendable {
 
 public enum Isthmus {
     public static let repository = "AWSNygma/isthmus"
-    public static let version = "0.1.0"
+    public static let version = "0.2.0"
 }

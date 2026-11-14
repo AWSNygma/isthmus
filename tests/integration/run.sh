@@ -23,7 +23,7 @@ REPORT="${REPORT:-integration-report.txt}"
 "$CLI" bottle create probes || exit 1
 
 fails=0
-probe() { # required(0/1) label graphics exe [args]
+probe() { # required(0/1) label graphics exe [args]   (EXPECT="impl=…" to also check output)
   local required="$1" label="$2" graphics="$3"; shift 3
   local out
   out=$(perl -e 'alarm shift; exec @ARGV' 180 "$CLI" run -b probes ${graphics:+--graphics "$graphics"} --verbose "$@" 2>&1 \
@@ -31,11 +31,15 @@ probe() { # required(0/1) label graphics exe [args]
   [[ -z "$out" ]] && out="FAIL (no result: crashed or timed out)"
   printf '%-28s %s\n' "$label" "$out" | tee -a "$REPORT"
   if [[ "$required" == 1 && "$out" != PASS* ]]; then fails=$((fails + 1)); fi
+  if [[ -n "${EXPECT:-}" && "$out" == PASS* && "$out" != *"$EXPECT"* ]]; then
+    printf '%-28s %s\n' "" "FAIL expected $EXPECT" | tee -a "$REPORT"; fails=$((fails + 1))
+  fi
 }
 
-for g in dxmt dxvk wined3d; do
-  probe 1 "d3d11 x64 / $g" "$g" "$PROBES/d3d11_probe.exe"
-  probe 1 "d3d11 x86 / $g" "$g" "$PROBES/d3d11_probe32.exe"
+# Interleave backends: a stale-runtime bug shows up as the wrong impl.
+for g in dxmt dxvk wined3d dxmt; do
+  EXPECT="impl=$g" probe 1 "d3d11 x64 / $g" "$g" "$PROBES/d3d11_probe.exe"
+  EXPECT="impl=$g" probe 1 "d3d11 x86 / $g" "$g" "$PROBES/d3d11_probe32.exe"
 done
 probe 1 "d3d12 / vkd3d" wined3d "$PROBES/d3d12_probe.exe"
 if [[ -n "${D3DMETAL_TOOLKIT:-}" ]]; then

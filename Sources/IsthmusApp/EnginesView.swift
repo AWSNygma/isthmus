@@ -64,6 +64,8 @@ struct EnginesView: View {
                 Text("D3DMetal (optional)")
             }
 
+            SelfTestSection()
+
             Section("Licenses") {
                 Text("Isthmus is GPL-3.0. Wine, vkd3d and DXMT are LGPL-2.1; DXVK is zlib; MoltenVK is Apache-2.0. Full notices ship inside each engine.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -113,5 +115,52 @@ struct CheckRow: View {
     }
     var color: Color {
         switch check.level { case .ok: .green; case .warning: .orange; case .error: .red }
+    }
+}
+
+struct SelfTestSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var results: [SelfTest.Result] = []
+    @State private var running = false
+
+    var body: some View {
+        Section {
+            if results.isEmpty && !running {
+                Text("Runs small Windows test programs through every graphics backend to check that this Mac and engine work. Takes about a minute.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(results) { r in
+                HStack(alignment: .firstTextBaseline) {
+                    Image(systemName: r.outcome == .pass ? "checkmark.circle.fill" : r.outcome == .skip ? "minus.circle" : "xmark.octagon.fill")
+                        .foregroundStyle(r.outcome == .pass ? .green : r.outcome == .skip ? .secondary : (r.required ? .red : .orange))
+                    VStack(alignment: .leading) {
+                        Text(r.name)
+                        Text(r.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+            }
+            HStack {
+                if running { ProgressView().controlSize(.small); Text("Testing…").foregroundStyle(.secondary) }
+                Spacer()
+                Button(results.isEmpty ? "Run Self-Test" : "Run Again") { run() }
+                    .disabled(running || model.engines.isEmpty || model.bottles.isEmpty)
+            }
+        } header: {
+            Text("Self-Test")
+        }
+    }
+
+    private func run() {
+        guard let b = model.bottle(model.defaultBottleID ?? "") ?? model.bottles.first else { return }
+        results = []; running = true
+        let paths = model.paths
+        Task.detached {
+            do {
+                _ = try await SelfTest(paths: paths).run(bottle: b) { r in Task { @MainActor in results.append(r) } }
+            } catch {
+                await MainActor.run { model.alert = AppAlert(title: "Self-test couldn't run", message: error.localizedDescription) }
+            }
+            await MainActor.run { running = false }
+        }
     }
 }

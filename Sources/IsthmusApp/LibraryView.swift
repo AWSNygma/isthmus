@@ -136,10 +136,10 @@ struct StatusBadge: View {
 
 extension Game.Source {
     var label: String {
-        switch self { case .steam: "Steam"; case .epic: "Epic"; case .gog: "GOG"; case .pinned: "Added" }
+        switch self { case .steam: "Steam"; case .epic: "Epic"; case .gog: "GOG"; case .installed: "Installed"; case .pinned: "Added" }
     }
     var symbol: String {
-        switch self { case .steam: "cloud"; case .epic: "bag"; case .gog: "opticaldisc"; case .pinned: "pin" }
+        switch self { case .steam: "cloud"; case .epic: "bag"; case .gog: "opticaldisc"; case .installed: "shippingbox"; case .pinned: "pin" }
     }
 }
 

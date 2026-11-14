@@ -182,6 +182,11 @@ public struct Bottle: Sendable, Equatable, Identifiable, Hashable {
 
     public func save() throws { try JSON.write(config, to: configURL) }
 
+    /// Fresh copy from disk (another process may have changed it).
+    public func reloaded() -> Bottle {
+        (try? JSON.read(BottleConfig.self, from: configURL)).map { Bottle(url: url, config: $0) } ?? self
+    }
+
     public func settings(forProgram key: String) -> ProgramSettings {
         config.programs[Self.programKey(key)] ?? ProgramSettings()
     }
@@ -248,11 +253,20 @@ public struct BottleStore: Sendable {
     /// afterwards to build the Wine prefix (slow: 20–60 s).
     public func create(name: String, engineVersion: String? = nil, settings: BottleSettings = .init()) throws -> Bottle {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let id = trimmed.slug
-        guard !trimmed.isEmpty, !id.isEmpty, trimmed.count <= 64 else { throw IsthmusError.invalidName(name) }
+        guard Self.isValidName(trimmed) else { throw IsthmusError.invalidName(name) }
+        if list().contains(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            throw IsthmusError.bottleExists(trimmed)
+        }
         try paths.ensure()
-        let dir = paths.bottles.appendingPathComponent(id, isDirectory: true)
-        guard !FileManager.default.fileExists(atPath: dir.path) else { throw IsthmusError.bottleExists(trimmed) }
+        // Non-Latin names ("ゲーム") have an empty ASCII slug; give them a stable random id.
+        var id = trimmed.slug
+        if id.isEmpty { id = "bottle-" + UUID().uuidString.prefix(8).lowercased() }
+        var dir = paths.bottles.appendingPathComponent(id, isDirectory: true)
+        var n = 2
+        while FileManager.default.fileExists(atPath: dir.path) {
+            dir = paths.bottles.appendingPathComponent("\(id)-\(n)", isDirectory: true); n += 1
+        }
+        id = dir.lastPathComponent
         let bottle = Bottle(url: dir, config: BottleConfig(id: id, name: trimmed, engineVersion: engineVersion, settings: settings))
         for d in [bottle.prefix, bottle.logs, bottle.cache] {
             try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
@@ -266,15 +280,53 @@ public struct BottleStore: Sendable {
         try FileManager.default.trashItem(at: bottle.url, resultingItemURL: nil)
     }
 
+    /// A name needs at least one letter or digit (any script) and at most 64 characters.
+    public static func isValidName(_ name: String) -> Bool {
+        !name.isEmpty && name.count <= 64 && name.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+            && !name.contains("/") && !name.contains(":")
+    }
+
+    /// Bottle folders whose bottle.json is missing or unreadable.
+    public func damaged() -> [URL] {
+        let fm = FileManager.default
+        guard let dirs = try? fm.contentsOfDirectory(at: paths.bottles, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
+        return dirs.filter { d in
+            (try? d.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && !d.lastPathComponent.hasPrefix(".")
+                && (try? JSON.read(BottleConfig.self, from: d.appendingPathComponent("bottle.json"))) == nil
+        }
+    }
+
+    /// Read-modify-write against the file on disk, so the app and CLI can't
+    /// clobber each other's changes with stale copies.
+    @discardableResult
+    public func update(_ id: String, _ mutate: (inout BottleConfig) throws -> Void) throws -> Bottle {
+        let lock = paths.bottles.appendingPathComponent(id).appendingPathComponent(".lock")
+        return try FileLock.with(lock) {
+            var b = try bottle(id)
+            try mutate(&b.config)
+            try b.save()
+            return b
+        }
+    }
+
     public func rename(_ bottle: Bottle, to name: String) throws -> Bottle {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.slug.isEmpty else { throw IsthmusError.invalidName(name) }
+        guard Self.isValidName(trimmed) else { throw IsthmusError.invalidName(name) }
         if list().contains(where: { $0.id != bottle.id && $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
             throw IsthmusError.bottleExists(trimmed)
         }
-        var b = bottle
-        b.config.name = trimmed
-        try b.save()
-        return b
+        return try update(bottle.id) { $0.name = trimmed }
+    }
+}
+
+/// Advisory `flock` so concurrent writers (app + CLI + shortcut) serialize.
+enum FileLock {
+    static func with<T>(_ url: URL, _ body: () throws -> T) throws -> T {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(url.path, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else { return try body() }
+        defer { flock(fd, LOCK_UN); close(fd) }
+        flock(fd, LOCK_EX)
+        return try body()
     }
 }

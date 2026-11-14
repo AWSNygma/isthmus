@@ -64,6 +64,16 @@ Isthmus instead builds a **runtime overlay** per (engine, backend) pair in
   backend just means running a different `bin/wine`.
 - Overlays are rebuilt whenever an engine or D3DMetal import changes.
 
+Each overlay gets its **own copy of the two loader binaries** (`bin/wine` and
+`lib/wine/x86_64-unix/wine`); everything else is hardlinked. CodeWeavers'
+Dock-name hack (CW HACK 22144, enabled by setting `WINEDLLPATH`) re-execs
+the loader through a link in `$TMPDIR/winetemp-<inode>-…/` named after the
+game's `.exe`, so the Dock shows the game's name. That directory is keyed on
+the loader's inode. With a shared inode, every backend silently reused
+whichever runtime ran first. `tests/winprobes/d3d11_probe` reports which
+implementation actually loaded (`impl=dxmt|dxvk|wined3d`), and the
+integration suite interleaves backends to catch regressions of this.
+
 Translation layers add modules that Wine itself doesn't ship (DXMT's
 `winemetal.dll`, `nvngx.dll`). Wine only searches its builtin directory for a
 module when the prefix's system32 has a stub, so `installStubs` copies the
@@ -99,6 +109,42 @@ modifier mapping and the Windows version. These are written with a single
 `regedit /S` import. Isthmus stores a hash of what it last applied, so a
 launch only touches the registry when something changed.
 
+## Launching
+
+Everything goes through `LaunchService` (app, CLI, Launchpad shortcuts):
+
+1. Re-read `bottle.json` from disk, and finish an interrupted bottle setup.
+2. Apply registry-backed settings if they changed. This never waits for the
+   bottle to go idle: `wineserver -w` would block forever while Steam is
+   open.
+3. Plan the launch. Preflight checks: Rosetta installed, the file exists, it
+   is a Windows program (not a `.app` or a folder).
+4. Refuse games whose recipe status is `blocked`.
+5. Install missing runtimes the recipe asks for.
+6. **Store-client runtime check.** A game started through a running Steam
+   inherits Steam's DLL directory, not the one chosen for the game. Isthmus
+   records which runtime started the client
+   (`cache/launcher-runtime.json`, with the client's pid). When a game needs
+   a different one, it asks Steam to quit (`steam.exe -shutdown`) and waits
+   for it. It never force-kills, because other games in the bottle would die
+   with it. If Steam doesn't quit, the user gets an explanation instead.
+
+Running state comes from the bottle's wineserver socket
+(`/tmp/.wine-<uid>/server-<dev>-<inode>/socket`, connect-tested), so it's
+right regardless of what started the programs.
+
+Concurrent writers (the app, the CLI, shortcuts) change `bottle.json` with
+`BottleStore.update`, a read-modify-write under `flock`, so nobody saves over
+another's changes from a stale copy.
+
+Other launch details:
+
+- Logs are capped at 64 MB per launch.
+- `LANG` is derived from macOS settings when the process has none, which is
+  always the case when launched from Finder.
+- A display-sleep assertion is held while a game runs, because controller
+  input doesn't count as user activity.
+
 ## Library
 
 `GameLibrary.scan` reads each store's own metadata:
@@ -107,6 +153,10 @@ launch only touches the registry when something changed.
   parser in `VDF`), with cover art from `appcache/librarycache`.
 - **Epic:** `ProgramData/Epic/EpicGamesLauncher/Data/Manifests/*.item`.
 - **GOG:** `goggame-*.info` in install folders.
+- **Installed:** Start Menu shortcuts (`.lnk`, parsed by `ShellLink`).
+  Installers create these, so games installed from discs or standalone
+  installers appear automatically. Uninstallers, readmes and store clients
+  are filtered out.
 - **Pinned:** executables the user added.
 
 Steam games launch through `steam.exe -silent -applaunch <appid>`, so Steam's
@@ -123,5 +173,18 @@ DRM, cloud saves and overlay keep working.
   D3D12 clear/copy/fence, D3D9, Vulkan), plus AVX visibility, HTTPS via
   WinHTTP, XInput, CoreAudio and Media Foundation decoding through
   GStreamer.
+- `isthmus selftest` (and **Engines & Graphics → Self-Test** in the app)
+  runs the same probes on the user's own Mac. The probes ship inside the
+  app.
+- The unit tests also cover edge cases:
+  - Fuzzed PE and `.lnk` input
+  - Concurrent overlay builds and concurrent bottle updates
+  - Engine removal guards
+  - Wineserver socket detection
+  - Legacy `libraryfolders.vdf`
+  - Unicode bottle names
+  - Launch validation
+  - Log capping
+  - Locale fallback
 - `tests/integration/run.sh` installs an engine into a throwaway
   `ISTHMUS_HOME` and runs every probe through the real CLI launch path.

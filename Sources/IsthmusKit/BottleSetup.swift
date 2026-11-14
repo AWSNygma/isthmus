@@ -80,7 +80,7 @@ public struct BottleSetup: Sendable {
     public func initialize(_ bottle: Bottle, progress: (@Sendable (String) -> Void)? = nil) throws -> Bottle {
         progress?("Creating Windows environment…")
         let boot = try WineRunner.run(try utilityPlan(bottle: bottle, arguments: ["wineboot", "--init"]), timeout: 600)
-        try WineRunner.waitIdle(bottle: bottle, paths: paths)
+        try WineRunner.waitIdle(bottle: bottle, paths: paths, timeout: 180)
         guard bottle.isInitialized else {
             throw IsthmusError.processFailed(command: "wineboot --init", status: boot.status, output: boot.output)
         }
@@ -104,9 +104,9 @@ public struct BottleSetup: Sendable {
         try RegFile.forSettings(bottle.config.settings).text.write(to: reg, atomically: true, encoding: .utf8)
         try checked(WineRunner.run(try utilityPlan(bottle: bottle, arguments: ["regedit", "/S", reg.path]), timeout: 120), "regedit")
         try checked(WineRunner.run(try utilityPlan(bottle: bottle, arguments: ["winecfg", "/v", bottle.config.settings.windowsVersion.rawValue]), timeout: 120), "winecfg")
-        try WineRunner.waitIdle(bottle: bottle, paths: paths)
-        bottle.config.appliedRegistryHash = hash
-        try bottle.save()
+        // No waitIdle here: the registry change is live in the running
+        // wineserver, and waiting would block while Steam or a game is open.
+        bottle = try BottleStore(paths: paths).update(bottle.id) { $0.appliedRegistryHash = hash }
     }
 
     private func checked(_ r: Shell.Result, _ what: String) throws {
@@ -119,6 +119,7 @@ public struct BottleSetup: Sendable {
     public func install(component id: String, into bottle: inout Bottle,
                         progress: (@Sendable (String) -> Void)? = nil) async throws {
         guard let c = Catalog.component(id) else { throw IsthmusError.unsupported("Unknown component \(id).") }
+        let wasRunning = WineServer.isRunning(bottle)
         for inst in c.installers {
             let file = paths.cache.appendingPathComponent("components/\(c.id)/\(inst.fileName)")
             if !FileManager.default.fileExists(atPath: file.path) {
@@ -133,9 +134,8 @@ public struct BottleSetup: Sendable {
                 throw IsthmusError.processFailed(command: "\(c.name) installer", status: r.status, output: r.output)
             }
         }
-        try WineRunner.waitIdle(bottle: bottle, paths: paths)
-        if !bottle.config.components.contains(id) { bottle.config.components.append(id) }
-        try bottle.save()
+        if !wasRunning { try WineRunner.waitIdle(bottle: bottle, paths: paths, timeout: 120) }
+        bottle = try BottleStore(paths: paths).update(bottle.id) { if !$0.components.contains(id) { $0.components.append(id) } }
     }
 
     /// Download a store launcher's installer and run it. Returns the
@@ -148,9 +148,10 @@ public struct BottleSetup: Sendable {
         progress?("Downloading \(l.name)…")
         try await Downloader.fetch(l.installerURL, to: file)
         progress?("Installing \(l.name)…")
+        let wasRunning = WineServer.isRunning(bottle)
         let args = (file.pathExtension.lowercased() == "msi" ? ["msiexec", "/i", file.path] : [file.path]) + l.silentArguments
         _ = try WineRunner.run(try utilityPlan(bottle: bottle, arguments: args, workingDirectory: file.deletingLastPathComponent()), timeout: 3600)
-        try WineRunner.waitIdle(bottle: bottle, paths: paths)
+        if !wasRunning { try WineRunner.waitIdle(bottle: bottle, paths: paths, timeout: 120) }
         let exe = bottle.unixPath(forWindowsPath: l.executable)
         return FileManager.default.fileExists(atPath: exe.path) ? exe : nil
     }

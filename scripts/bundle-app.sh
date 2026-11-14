@@ -28,6 +28,13 @@ cp "$BIN/isthmus" "$APP/Contents/Helpers/isthmus"
 cp -R "$BIN/Isthmus_IsthmusKit.bundle" "$APP/Contents/Resources/"
 cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/" 2>/dev/null || true
 
+echo "==> self-test probes"
+make -s -C tests/winprobes
+mkdir -p "$APP/Contents/Resources/probes"
+for p in d3d11_probe d3d11_probe32 d3d12_probe d3d9_probe d3d9_probe32 vulkan_probe system_probes; do
+  cp "tests/winprobes/build/$p.exe" "$APP/Contents/Resources/probes/"
+done
+
 echo "==> icon"
 ICONSET="$(mktemp -d)/AppIcon.iconset"
 swift scripts/make-icon.swift "$ICONSET" >/dev/null

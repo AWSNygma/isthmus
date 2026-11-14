@@ -10,6 +10,7 @@ struct IsthmusApp: App {
         Window("Isthmus", id: "main") {
             ContentView()
                 .environment(model)
+                .background(WindowOpenerBridge(delegate: delegate))
                 .frame(minWidth: 860, minHeight: 560)
                 .onAppear { delegate.model = model; delegate.flushPending() }
                 .onOpenURL { url in model.pendingOpen = PendingOpen(url: url) }
@@ -42,10 +43,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor var model: AppModel?
     @MainActor private var pending: [URL] = []
 
+    @MainActor var reopenMainWindow: (() -> Void)?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Dock icon click with no window open: bring the main window back.
+    @MainActor func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { reopenMainWindow?() }
+        return true
+    }
 
     @MainActor func application(_ application: NSApplication, open urls: [URL]) {
         pending.append(contentsOf: urls)
+        if NSApp.windows.filter({ $0.isVisible && $0.canBecomeMain }).isEmpty { reopenMainWindow?() }
         flushPending()
     }
 
@@ -59,4 +69,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let newBottle = Notification.Name("isthmus.newBottle")
     static let runProgram = Notification.Name("isthmus.runProgram")
+}
+
+/// Hands SwiftUI's `openWindow` action to the app delegate.
+private struct WindowOpenerBridge: View {
+    let delegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Color.clear.onAppear { delegate.reopenMainWindow = { openWindow(id: "main") } }
+    }
 }

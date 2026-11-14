@@ -60,6 +60,10 @@ public struct Doctor: Sendable {
             : Check(id: "ram", title: "\(ram) GB memory", level: .warning,
                     detail: "Memory is shared with the GPU. Recent AAA games want 16 GB or more."))
 
+        if let location = Self.appLocationProblem(Bundle.main.bundlePath) {
+            checks.append(Check(id: "location", title: "App location", level: .warning, detail: location))
+        }
+
         let engines = EngineManager(paths: paths).installed()
         checks.append(engines.isEmpty
             ? Check(id: "engine", title: "Engine", level: .error, detail: "No engine installed.", fix: .downloadEngine)
@@ -81,6 +85,19 @@ public struct Doctor: Sendable {
                 : Check(id: "disk", title: "\(gb) GB free", level: .warning, detail: "Modern games need 50–150 GB each."))
         }
         return checks
+    }
+
+    /// Launchpad shortcuts and file associations remember where the app is;
+    /// running from the disk image or a quarantine-translocated copy breaks them.
+    public static func appLocationProblem(_ path: String) -> String? {
+        guard path.hasSuffix(".app") else { return nil }   // CLI / tests
+        if path.contains("/AppTranslocation/") {
+            return "macOS is running Isthmus from a temporary location. Move it to Applications, then open it again."
+        }
+        if path.hasPrefix("/Volumes/") {
+            return "Isthmus is running from the disk image. Drag it to Applications so shortcuts keep working after you eject."
+        }
+        return nil
     }
 
     static func cpuName() -> String {

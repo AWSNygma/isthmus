@@ -96,9 +96,10 @@ enum JSON {
 
 extension String {
     /// Filesystem-safe slug used for bottle directory names.
+    /// ASCII-only: used for folder names, log names and bundle identifiers.
     var slug: String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        let mapped = lowercased().unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let folded = folding(options: [.diacriticInsensitive, .widthInsensitive], locale: nil).lowercased()
+        let mapped = folded.unicodeScalars.map { ($0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-")) ? Character($0) : "-" }
         var s = String(mapped)
         while s.contains("--") { s = s.replacingOccurrences(of: "--", with: "-") }
         return s.trimmingCharacters(in: CharacterSet(charactersIn: "-"))

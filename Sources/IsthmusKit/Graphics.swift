@@ -33,6 +33,12 @@ public struct D3DMetalStore: Sendable {
     @discardableResult
     public func importToolkit(from source: URL) throws -> D3DMetalInstall {
         try paths.ensure()
+        // CrossOver's copy of D3DMetal is licensed to CodeWeavers for use in
+        // CrossOver; it must come from Apple's toolkit download instead.
+        let resolved = source.resolvingSymlinksInPath().path.lowercased()
+        if resolved.contains("crossover.app") || resolved.contains("/crossover/") {
+            throw IsthmusError.d3dmetalNotFound("that's CrossOver's copy, which is licensed for CrossOver only. Download the Game Porting Toolkit from developer.apple.com and import that instead.")
+        }
         if source.pathExtension.lowercased() == "dmg" {
             return try withMountedImage(source) { mount in try importToolkit(from: mount) }
         }
@@ -100,7 +106,10 @@ public struct D3DMetalStore: Sendable {
     private func withMountedImage<T>(_ dmg: URL, _ body: (URL) throws -> T) throws -> T {
         let mount = FileManager.default.temporaryDirectory.appendingPathComponent("isthmus-gptk-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
-        try Shell.run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount.path, dmg.path])
+        // Images with a license agreement prompt on stdin; accept it (the user
+        // already agreed when downloading from Apple).
+        try Shell.run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint", mount.path, dmg.path],
+                      input: "Y\n")
         defer {
             _ = try? Shell.run("/usr/bin/hdiutil", ["detach", "-force", mount.path], allowFailure: true)
             try? FileManager.default.removeItem(at: mount)
@@ -151,8 +160,11 @@ public enum RuntimeOverlay {
         public var d3dmetalVersion: String?
         public var nvext: Bool
 
+        /// Bump when the overlay layout changes so old overlays are rebuilt.
+        static let format = 3
+
         var directoryName: String {
-            var s = "\(engineVersion)-\(backend.rawValue)"
+            var s = "\(engineVersion)-\(backend.rawValue)-f\(Self.format)"
             if backend == .d3dmetal, let v = d3dmetalVersion { s += "-gptk\(v)" }
             if nvext { s += "-nvext" }
             return s
@@ -177,6 +189,16 @@ public enum RuntimeOverlay {
         let tmp = paths.runtime.appendingPathComponent(".build-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: tmp) }
         try linkTree(from: engine.url, to: tmp)
+        // The loader must NOT be a hardlink: Wine's Dock-name hack keys its
+        // temp re-exec directory on the loader's inode, and a shared inode
+        // would make every backend reuse whichever runtime ran first.
+        for rel in ["bin/wine", "lib/wine/x86_64-unix/wine", "lib/wine/x86_64-unix/wine-preloader"] {
+            let src = engine.url.appendingPathComponent(rel)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            let dst = tmp.appendingPathComponent(rel)
+            try? fm.removeItem(at: dst)
+            try fm.copyItem(at: src, to: dst)
+        }
 
         let wine = tmp.appendingPathComponent("lib/wine")
         switch backend {
@@ -191,8 +213,14 @@ public enum RuntimeOverlay {
             break
         }
         fm.createFile(atPath: tmp.appendingPathComponent(".complete").path, contents: Data(key.directoryName.utf8))
-        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-        try fm.moveItem(at: tmp, to: dest)
+        // Another launch may have finished the same overlay while we built ours.
+        if fm.fileExists(atPath: marker.path) { return dest }
+        if fm.fileExists(atPath: dest.path) { try? fm.removeItem(at: dest) }   // stale, incomplete
+        do {
+            try fm.moveItem(at: tmp, to: dest)
+        } catch where fm.fileExists(atPath: marker.path) {
+            return dest
+        }
         return dest
     }
 

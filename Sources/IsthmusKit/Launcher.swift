@@ -11,6 +11,9 @@ public struct LaunchPlan: Sendable, Equatable {
     public var recipe: Recipe?
     /// Components the recipe wants that aren't installed yet.
     public var missingComponents: [String]
+    /// Store client this launch goes through ("steam", "epic"), if any.
+    /// Games started by a running client inherit the client's runtime.
+    public var launcherID: String? = nil
 }
 
 /// Identifies what's being launched so recipes can match.
@@ -93,8 +96,12 @@ public struct LaunchPlanner: Sendable {
         let engine = try EngineManager(paths: paths).engine(bottle.config.engineVersion)
         let d3dmetal = D3DMetalStore(paths: paths).current
 
+        guard Doctor.rosettaInstalled || ProcessInfo.processInfo.environment["ISTHMUS_SKIP_ROSETTA_CHECK"] != nil else {
+            throw IsthmusError.unsupported("Rosetta 2 isn't installed. Windows games need it; install it from the Engines & Graphics page or run `softwareupdate --install-rosetta`.")
+        }
         // What are we really running?
         let resolved = resolveProgram(target.program, bottle: bottle)
+        try Self.validate(target.program, resolved: resolved, bottle: bottle)
         let inspectURL = target.inspect ?? resolved.inspect
         let exeName = inspectURL?.lastPathComponent ?? resolved.inspect?.lastPathComponent
         let program = bottle.config.programs[target.settingsKey(in: bottle)] ?? ProgramSettings()
@@ -116,7 +123,36 @@ public struct LaunchPlanner: Sendable {
                           arguments: resolved.wineArguments + target.arguments + effective.arguments,
                           environment: env,
                           workingDirectory: resolved.workingDirectory,
-                          backend: backend, recipe: recipe, missingComponents: missing)
+                          backend: backend, recipe: recipe, missingComponents: missing,
+                          launcherID: Self.launcherID(for: target))
+    }
+
+    /// File types Wine can start.
+    public static let runnableExtensions: Set<String> = ["exe", "msi", "bat", "cmd", "lnk", "url", "com"]
+
+    static func validate(_ program: String, resolved: ResolvedProgram, bottle: Bottle) throws {
+        guard resolved.isPath else { return }
+        let unix = bottle.unixPath(forWindowsPath: program)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: unix.path, isDirectory: &isDir) else {
+            throw IsthmusError.unsupported("\(unix.lastPathComponent) wasn't found at \(unix.deletingLastPathComponent().path). It may have been moved, deleted, or be on a disconnected drive.")
+        }
+        if isDir.boolValue || !runnableExtensions.contains(unix.pathExtension.lowercased()) {
+            if unix.pathExtension.lowercased() == "app" {
+                throw IsthmusError.unsupported("\(unix.lastPathComponent) is a Mac app. Open it directly from Finder.")
+            }
+            throw IsthmusError.unsupported("\(unix.lastPathComponent) isn't a Windows program. Isthmus can run .exe, .msi, .bat and .lnk files.")
+        }
+    }
+
+    static func launcherID(for target: LaunchTarget) -> String? {
+        if target.steamAppID != nil { return "steam" }
+        if target.epicAppName != nil && target.program.contains("://") { return "epic" }
+        let name = (target.program as NSString).lastPathComponent.lowercased()
+        let leaf = name.split(separator: "\\").last.map(String.init) ?? name
+        if leaf == "steam.exe" { return "steam" }
+        if leaf == "epicgameslauncher.exe" { return "epic" }
+        return nil
     }
 
     struct ResolvedProgram {
@@ -124,6 +160,7 @@ public struct LaunchPlanner: Sendable {
         var workingDirectory: URL?
         var inspect: URL?
         var key: String
+        var isPath = true
     }
 
     func resolveProgram(_ program: String, bottle: Bottle) -> ResolvedProgram {
@@ -131,8 +168,8 @@ public struct LaunchPlanner: Sendable {
         let isPath = program.hasPrefix("/") || isWindowsPath || program.contains("\\")
         guard isPath else {
             // Builtin program (winecfg, regedit, explorer, cmd, taskmgr, …) or URL.
-            if program.contains("://") { return ResolvedProgram(wineArguments: ["start", "", program], workingDirectory: nil, inspect: nil, key: program) }
-            return ResolvedProgram(wineArguments: [program], workingDirectory: nil, inspect: nil, key: program)
+            if program.contains("://") { return ResolvedProgram(wineArguments: ["start", "", program], workingDirectory: nil, inspect: nil, key: program, isPath: false) }
+            return ResolvedProgram(wineArguments: [program], workingDirectory: nil, inspect: nil, key: program, isPath: false)
         }
         let unix = bottle.unixPath(forWindowsPath: program)
         let key = Bottle.programKey(bottle.windowsPath(forUnixPath: unix))
@@ -156,7 +193,13 @@ public struct LaunchPlanner: Sendable {
         for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "SHELL"] {
             if let v = base[key] { env[key] = v }
         }
+        // Apps started from Finder get no LANG; Wine would fall back to the C
+        // locale (English UI, broken non-ASCII paths). Derive it from macOS.
+        if env["LANG"]?.isEmpty ?? true { env["LANG"] = posixLocale() }
         let lib = root.appendingPathComponent("lib").path
+        // With WINEDLLPATH set, the CrossOver loader re-execs through a link
+        // named after the .exe, so the Dock shows the game's name, not "wine".
+        env["WINEDLLPATH"] = lib + "/wine"
         env["PATH"] = "\(root.appendingPathComponent("bin").path):/usr/bin:/bin:/usr/sbin:/sbin"
         env["WINEPREFIX"] = bottle.prefix.path
         env["WINEDEBUG"] = switch s.logging {
@@ -208,6 +251,15 @@ public struct LaunchPlanner: Sendable {
     }
 }
 
+/// `en_US.UTF-8`-style locale from the user's macOS language settings.
+public func posixLocale(_ locale: Locale = .current) -> String {
+    let lang = locale.language.languageCode?.identifier ?? "en"
+    // No region (e.g. just "ja"): use the language's most likely one ("ja-Jpan-JP" → JP).
+    let likely = Locale.Language(identifier: lang).maximalIdentifier.split(separator: "-").last.map(String.init)
+    let region = locale.region?.identifier ?? likely.flatMap { $0.count == 2 ? $0 : nil } ?? "US"
+    return "\(lang)_\(region).UTF-8"
+}
+
 /// A running Wine process started by Isthmus.
 public final class RunningProgram: @unchecked Sendable, Identifiable {
     public let id = UUID()
@@ -232,28 +284,41 @@ public final class RunningProgram: @unchecked Sendable, Identifiable {
 }
 
 public enum WineRunner {
+    /// Largest log kept per launch; verbose Wine logging can produce GBs.
+    public static let logLimit = 64 << 20
+
     /// Start a program and return immediately. Output goes to a per-launch log.
     public static func launch(_ plan: LaunchPlan, bottle: Bottle, title: String,
                               onExit: (@Sendable (Int32) -> Void)? = nil) throws -> RunningProgram {
         try FileManager.default.createDirectory(at: bottle.logs, withIntermediateDirectories: true)
         pruneLogs(in: bottle.logs, keep: 30)
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let safe = title.slug.isEmpty ? "program" : title.slug
+        let safe = title.slug.isEmpty ? "program" : String(title.slug.prefix(60))
         let logURL = bottle.logs.appendingPathComponent("\(stamp)-\(safe).log")
         FileManager.default.createFile(atPath: logURL.path, contents: header(plan, title: title))
         let log = try FileHandle(forWritingTo: logURL)
         log.seekToEndOfFile()
+        let writer = CappedLogWriter(handle: log, limit: logLimit)
 
+        let pipe = Pipe()
         let p = Process()
         p.executableURL = plan.executable
         p.arguments = plan.arguments
         p.environment = plan.environment
         p.currentDirectoryURL = plan.workingDirectory.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-        p.standardOutput = log
-        p.standardError = log
+        p.standardOutput = pipe
+        p.standardError = pipe
         p.standardInput = FileHandle.nullDevice
+        pipe.fileHandleForReading.readabilityHandler = { h in
+            let d = h.availableData
+            if d.isEmpty { h.readabilityHandler = nil } else { writer.write(d) }
+        }
         p.terminationHandler = { proc in
-            try? log.close()
+            // Drain what's left, then close.
+            pipe.fileHandleForReading.readabilityHandler = nil
+            writer.write(pipe.fileHandleForReading.readDataToEndOfFile())
+            writer.write(Data("\n# exited with status \(proc.terminationStatus) at \(Date())\n".utf8), force: true)
+            writer.close()
             onExit?(proc.terminationStatus)
         }
         try p.run()
@@ -287,10 +352,25 @@ public enum WineRunner {
         try Shell.run(engine.wineserver.path, ["-k"], environment: ["WINEPREFIX": bottle.prefix.path], allowFailure: true)
     }
 
-    /// `wineserver -w`: block until the bottle is idle (all processes exited).
-    public static func waitIdle(bottle: Bottle, paths: IsthmusPaths = .default) throws {
+    /// `wineserver -w`: wait until the bottle is idle (all processes exited),
+    /// giving up after `timeout`. Returns true if it went idle.
+    /// Never call this without a timeout while user programs may be running:
+    /// an open Steam client would block it forever.
+    @discardableResult
+    public static func waitIdle(bottle: Bottle, paths: IsthmusPaths = .default, timeout: TimeInterval) throws -> Bool {
+        guard WineServer.isRunning(bottle) else { return true }
         let engine = try EngineManager(paths: paths).engine(bottle.config.engineVersion)
-        try Shell.run(engine.wineserver.path, ["-w"], environment: ["WINEPREFIX": bottle.prefix.path], allowFailure: true)
+        let p = Process()
+        p.executableURL = engine.wineserver
+        p.arguments = ["-w"]
+        p.environment = ["WINEPREFIX": bottle.prefix.path]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        let deadline = Date().addingTimeInterval(timeout)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+        if p.isRunning { p.terminate(); return false }
+        return true
     }
 
     static func header(_ plan: LaunchPlan, title: String) -> Data {
@@ -313,5 +393,40 @@ public enum WineRunner {
             return a > b
         }
         for f in sorted.dropFirst(keep) { try? fm.removeItem(at: f) }
+    }
+}
+
+/// Writes Wine output to the log until `limit` bytes, then notes the
+/// truncation and discards the rest (the pipe must keep draining or the
+/// game would block on a full pipe).
+final class CappedLogWriter: @unchecked Sendable {
+    private let handle: FileHandle
+    private let limit: Int
+    private var written = 0
+    private var truncated = false
+    private var closed = false
+    private let lock = NSLock()
+
+    init(handle: FileHandle, limit: Int) { self.handle = handle; self.limit = limit }
+
+    func write(_ data: Data, force: Bool = false) {
+        guard !data.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return }
+        if force || written + data.count <= limit {
+            try? handle.write(contentsOf: data); written += data.count
+        } else if !truncated {
+            let room = max(0, limit - written)
+            try? handle.write(contentsOf: data.prefix(room))
+            try? handle.write(contentsOf: Data("\n# log truncated at \(limit >> 20) MB; set logging to Errors or Quiet for long sessions\n".utf8))
+            written = limit; truncated = true
+        }
+    }
+
+    func close() {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return }
+        closed = true
+        try? handle.close()
     }
 }

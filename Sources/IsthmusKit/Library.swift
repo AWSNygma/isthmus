@@ -2,7 +2,7 @@ import Foundation
 
 /// A game found in a bottle (installed via a store, or pinned by the user).
 public struct Game: Sendable, Identifiable, Hashable {
-    public enum Source: String, Sendable, Codable { case steam, epic, gog, pinned }
+    public enum Source: String, Sendable, Codable { case steam, epic, gog, installed, pinned }
 
     public var id: String { "\(bottleID):\(source.rawValue):\(storeID)" }
     public var bottleID: String
@@ -14,6 +14,8 @@ public struct Game: Sendable, Identifiable, Hashable {
     public var executable: URL?
     /// Cover art (Steam library cache), when available.
     public var artwork: URL?
+    /// Arguments from the installer's shortcut.
+    public var arguments: [String] = []
 
     /// What to hand the launch planner.
     public func target(in bottle: Bottle) -> LaunchTarget {
@@ -23,10 +25,17 @@ public struct Game: Sendable, Identifiable, Hashable {
             return LaunchTarget(program: steam.path, arguments: ["-silent", "-applaunch", storeID],
                                 steamAppID: Int(storeID), inspect: executable)
         case .epic:
+            // Without the launcher installed the URL goes nowhere; many Epic
+            // games (DRM-free ones) run fine directly.
+            let launcher = bottle.unixPath(forWindowsPath: EpicLibrary.launcherExe)
+            if !FileManager.default.fileExists(atPath: launcher.path), let executable {
+                return LaunchTarget(program: executable.path, epicAppName: storeID, inspect: executable)
+            }
             return LaunchTarget(program: "com.epicgames.launcher://apps/\(storeID)?action=launch&silent=true",
                                 epicAppName: storeID, inspect: executable)
-        case .gog, .pinned:
-            return LaunchTarget(program: executable?.path ?? storeID, gogID: source == .gog ? storeID : nil, inspect: executable)
+        case .gog, .pinned, .installed:
+            return LaunchTarget(program: executable?.path ?? storeID, arguments: arguments,
+                                gogID: source == .gog ? storeID : nil, inspect: executable)
         }
     }
 }
@@ -38,6 +47,13 @@ public enum GameLibrary {
             let exe = bottle.unixPath(forWindowsPath: p.path)
             games.append(Game(bottleID: bottle.id, source: .pinned, storeID: p.id.uuidString, name: p.name,
                               installDirectory: exe.deletingLastPathComponent(), executable: exe, artwork: nil))
+        }
+        // Store-managed install folders: anything under them belongs to that store.
+        let storeDirs = games.compactMap { $0.source == .pinned ? nil : $0.installDirectory?.standardizedFileURL.path.lowercased() }
+        let known = Set(games.compactMap { $0.executable?.standardizedFileURL.path.lowercased() })
+        games += StartMenuLibrary.scan(bottle, excluding: known).filter { g in
+            let p = g.executable?.standardizedFileURL.path.lowercased() ?? ""
+            return !storeDirs.contains { p.hasPrefix($0 + "/") }
         }
         return games.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -150,8 +166,11 @@ public enum SteamLibrary {
         var folders = [root]
         let vdf = root.appendingPathComponent("steamapps/libraryfolders.vdf")
         if let text = try? String(contentsOf: vdf, encoding: .utf8) {
-            for (_, node) in VDF.parse(text)["libraryfolders"]?.children ?? [] {
-                if let p = node["path"]?.string {
+            let root = VDF.parse(text)
+            for (key, node) in (root["libraryfolders"] ?? root["LibraryFolders"])?.children ?? [] {
+                // Pre-2021 clients: "1" "D:\\SteamLibrary". Newer: "1" { "path" "…" }.
+                let path = node["path"]?.string ?? (Int(key) != nil ? node.string : nil)
+                if let p = path {
                     let u = bottle.unixPath(forWindowsPath: p)
                     if !folders.contains(where: { $0.standardizedFileURL == u.standardizedFileURL }) { folders.append(u) }
                 }
@@ -203,6 +222,8 @@ public enum SteamLibrary {
 }
 
 public enum EpicLibrary {
+    public static let launcherExe = "C:\\Program Files (x86)\\Epic Games\\Launcher\\Portal\\Binaries\\Win64\\EpicGamesLauncher.exe"
+
     struct Item: Decodable {
         var DisplayName: String?
         var AppName: String?

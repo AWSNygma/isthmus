@@ -36,6 +36,9 @@ final class AppModel {
     private(set) var remoteEngine: RemoteEngine?
     private(set) var running: [RunningProgram] = []
     private(set) var recipes = RecipeBook(recipes: [])
+    /// Bottles whose wineserver is alive (from any source: app, CLI, shortcuts).
+    private(set) var runningBottles: Set<String> = []
+    private var awake: PowerAssertion?
     var activities: [Activity] = []
     var alert: AppAlert?
     var pendingOpen: PendingOpen?
@@ -48,6 +51,26 @@ final class AppModel {
         try? paths.ensure()
         reload()
         Task { await checkForEngineUpdate() }
+        Task { [weak self] in
+            while !Task.isCancelled {
+                self?.pollRunning()
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+    }
+
+    private func pollRunning() {
+        let bottles = self.bottles
+        Task.detached(priority: .utility) {
+            let live = Set(bottles.filter { WineServer.isRunning($0) }.map(\.id))
+            await MainActor.run {
+                if live != self.runningBottles { self.runningBottles = live }
+                self.running.removeAll { !$0.isRunning }
+                // Hold the display awake while anything Isthmus started is running.
+                if self.running.isEmpty { self.awake?.release(); self.awake = nil }
+                else if self.awake == nil { self.awake = PowerAssertion(reason: "Windows game running") }
+            }
+        }
     }
 
     // MARK: Loading
@@ -79,7 +102,9 @@ final class AppModel {
                        gogID: game.source == .gog ? game.storeID : nil)
     }
 
-    func isRunning(bottleID: String) -> Bool { running.contains { $0.bottleID == bottleID && $0.isRunning } }
+    func isRunning(bottleID: String) -> Bool {
+        runningBottles.contains(bottleID) || running.contains { $0.bottleID == bottleID && $0.isRunning }
+    }
 
     var defaultBottleID: String? {
         get { UserDefaults.standard.string(forKey: "defaultBottle").flatMap { id in bottles.contains { $0.id == id } ? id : nil } ?? bottles.first?.id }
@@ -184,10 +209,11 @@ final class AppModel {
         }
     }
 
-    func save(_ bottle: Bottle) {
+    /// Read-modify-write on disk so the CLI/shortcuts' concurrent changes survive.
+    func update(_ id: String, _ mutate: @escaping (inout BottleConfig) -> Void) {
         do {
-            try bottle.save()
-            if let i = bottles.firstIndex(where: { $0.id == bottle.id }) { bottles[i] = bottle }
+            let b = try BottleStore(paths: paths).update(id, mutate)
+            if let i = bottles.firstIndex(where: { $0.id == id }) { bottles[i] = b }
         } catch {
             alert = AppAlert(title: "Couldn't save settings", message: error.localizedDescription)
         }
@@ -221,18 +247,17 @@ final class AppModel {
     }
 
     func pin(_ url: URL, in bottle: Bottle) {
-        var b = bottle
-        let path = b.windowsPath(forUnixPath: url)
-        guard !b.config.pinned.contains(where: { $0.path.caseInsensitiveCompare(path) == .orderedSame }) else { return }
-        b.config.pinned.append(PinnedProgram(name: url.deletingPathExtension().lastPathComponent, path: path))
-        save(b)
+        let path = bottle.windowsPath(forUnixPath: url)
+        update(bottle.id) { c in
+            guard !c.pinned.contains(where: { $0.path.caseInsensitiveCompare(path) == .orderedSame }) else { return }
+            c.pinned.append(PinnedProgram(name: url.deletingPathExtension().lastPathComponent, path: path))
+        }
         refreshGames()
     }
 
     func unpin(_ game: Game) {
-        guard game.source == .pinned, var b = bottle(game.bottleID) else { return }
-        b.config.pinned.removeAll { $0.id.uuidString == game.storeID }
-        save(b)
+        guard game.source == .pinned else { return }
+        update(game.bottleID) { $0.pinned.removeAll { $0.id.uuidString == game.storeID } }
         refreshGames()
     }
 
@@ -259,33 +284,23 @@ final class AppModel {
     }
 
     private func launch(_ target: LaunchTarget, title: String, in bottle: Bottle) {
-        let paths = self.paths
-        let recipes = self.recipes
+        let service = LaunchService(paths: paths, recipes: recipes)
         let activity = Activity(title: "Starting \(title)")
         activities.insert(activity, at: 0)
+        let report: @Sendable (String) -> Void = { msg in Task { @MainActor in activity.detail = msg } }
         Task.detached(priority: .userInitiated) {
             do {
-                var b = bottle
-                try BottleSetup(paths: paths).applySettings(&b)
-                let planner = LaunchPlanner(paths: paths, recipes: recipes)
-                var plan = try planner.plan(bottle: b, target: target)
-                if let r = plan.recipe, r.status == .blocked {
-                    throw IsthmusError.unsupported("\(r.name) can't run on Isthmus. \(r.notes ?? "")")
-                }
-                for c in plan.missingComponents {
-                    let name = Catalog.component(c)?.name ?? c
-                    await MainActor.run { activity.detail = "Installing \(name)…" }
-                    try await BottleSetup(paths: paths).install(component: c, into: &b)
-                }
-                if !plan.missingComponents.isEmpty { plan = try planner.plan(bottle: b, target: target) }
-                await MainActor.run { activity.detail = plan.backend.displayName }
-                let program = try WineRunner.launch(plan, bottle: b, title: title) { status in
+                let plan = try await service.prepare(bottle: bottle, target: target, progress: report)
+                report(plan.backend.displayName)
+                let started = Date()
+                let program = try service.start(plan, bottle: bottle, title: title) { status in
                     Task { @MainActor in
                         self.running.removeAll { !$0.isRunning }
-                        // Non-zero within a few seconds usually means it never got going.
-                        if status != 0, let p = self.lastLaunched[title], Date().timeIntervalSince(p.started) < 10 {
+                        // A launcher hand-off (steam -applaunch) exits 0 at once; a
+                        // non-zero exit within seconds means it never got going.
+                        if status != 0, Date().timeIntervalSince(started) < 10, let log = self.lastLaunched[title]?.logURL {
                             self.alert = AppAlert(title: "\(title) quit unexpectedly",
-                                                  message: "Exit code \(status). The log has details:\n\(p.logURL.path)")
+                                                  message: "Exit code \(status). The log has details:\n\(log.path)")
                         }
                     }
                 }
@@ -294,6 +309,7 @@ final class AppModel {
                     self.lastLaunched[title] = program
                     activity.finished = true
                     activity.detail = "Running"
+                    self.pollRunning()
                 }
                 try? await Task.sleep(for: .seconds(4))
                 await MainActor.run { self.activities.removeAll { $0.id == activity.id } }
@@ -301,6 +317,7 @@ final class AppModel {
                 await MainActor.run {
                     activity.finished = true; activity.failed = true; activity.detail = error.localizedDescription
                     self.alert = AppAlert(title: "Couldn't start \(title)", message: error.localizedDescription)
+                    self.reload()
                 }
             }
         }

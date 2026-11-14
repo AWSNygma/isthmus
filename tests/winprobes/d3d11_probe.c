@@ -7,6 +7,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <d3dcompiler.h>
+#include <string.h>
 
 static const char shader_src[] =
     "float4 vs(uint id : SV_VertexID) : SV_Position {\n"
@@ -70,7 +71,12 @@ int main(void)
     unsigned int px = ((unsigned int *)((char *)m.pData + 32 * m.RowPitch))[32];
     ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)staging, 0);
 
-    if (!color_close(px, 51, 153, 230)) FAIL("pixel 0x%08x, expected ~0xffe69933 (gpu %s)", px, gpu);
-    PASS("feature level %x, gpu \"%s\"", fl, gpu);
+    /* Which implementation is actually loaded: proves backend selection. */
+    const char *impl = GetModuleHandleA("winemetal.dll") ? "dxmt"
+                     /* DXVK's d3d11 omits Wine's D3DKMT forwarders. */
+                     : !GetProcAddress(GetModuleHandleA("d3d11.dll"), "D3DKMTCreateDevice") ? "dxvk"
+                     : GetModuleHandleA("wined3d.dll") ? "wined3d" : "d3dmetal-or-unknown";
+    if (!color_close(px, 51, 153, 230)) FAIL("pixel 0x%08x, expected ~0xffe69933 (gpu %s, impl %s)", px, gpu, impl);
+    PASS("impl=%s feature level %x, gpu \"%s\"", impl, fl, gpu);
     return 0;
 }

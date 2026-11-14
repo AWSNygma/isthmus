@@ -12,6 +12,7 @@ public enum Shell {
     public static func run(_ executable: String, _ arguments: [String],
                            environment: [String: String]? = nil,
                            currentDirectory: URL? = nil,
+                           input: String? = nil,
                            allowFailure: Bool = false) throws -> Result {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -21,8 +22,13 @@ public enum Shell {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        process.standardInput = FileHandle.nullDevice
+        let stdin = input.map { _ in Pipe() }
+        process.standardInput = stdin ?? FileHandle.nullDevice
         try process.run()
+        if let stdin, let input {
+            stdin.fileHandleForWriting.write(Data(input.utf8))
+            try? stdin.fileHandleForWriting.close()
+        }
         // Read before waiting so a chatty child can't block on a full pipe.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()

@@ -177,7 +177,7 @@ final class BottleTests: XCTestCase {
         let b = try store.create(name: "  My Games  ")
         XCTAssertEqual(b.id, "my-games")
         XCTAssertEqual(b.name, "My Games")
-        XCTAssertThrowsError(try store.create(name: "my games"))
+        XCTAssertThrowsError(try store.create(name: "my games"), "names are unique ignoring case")
         XCTAssertThrowsError(try store.create(name: "   "))
         XCTAssertThrowsError(try store.create(name: "!!!"))
         XCTAssertEqual(store.list().map(\.id), ["my-games"])
@@ -337,6 +337,7 @@ final class OverlayTests: XCTestCase {
         try Data("nv".utf8).write(to: e.appendingPathComponent("lib/dxmt/x86_64-windows/nvngx.dll"))
         try Data("so".utf8).write(to: e.appendingPathComponent("lib/dxmt/x86_64-unix/winemetal.so"))
         try Data("#!".utf8).write(to: e.appendingPathComponent("bin/wine"))
+        try Data("loader".utf8).write(to: e.appendingPathComponent("lib/wine/x86_64-unix/wine"))
         try fm.createSymbolicLink(atPath: e.appendingPathComponent("lib/libfoo.dylib").path, withDestinationPath: "libfoo.1.dylib")
         let manifest = EngineManifest(name: "t", version: "1.0", wine: "11.0", source: "t", arch: "x86_64", components: [:], built: nil)
         try JSON.write(manifest, to: e.appendingPathComponent("engine.json"))
@@ -351,7 +352,14 @@ final class OverlayTests: XCTestCase {
         XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: dir.appendingPathComponent("lib/libfoo.dylib").path), "libfoo.1.dylib")
         XCTAssertEqual(String(decoding: try Data(contentsOf: e.appendingPathComponent("lib/wine/x86_64-windows/d3d11.dll")), as: UTF8.self),
                        "base-d3d11", "base engine untouched")
-        // Hardlinked, not copied.
+        // The loader gets its own inode (see RuntimeOverlay.prepare).
+        let li = try fm.attributesOfItem(atPath: dir.appendingPathComponent("bin/wine").path)[.systemFileNumber] as? Int
+        let bi = try fm.attributesOfItem(atPath: e.appendingPathComponent("bin/wine").path)[.systemFileNumber] as? Int
+        XCTAssertNotEqual(li, bi)
+        let ul = try fm.attributesOfItem(atPath: dir.appendingPathComponent("lib/wine/x86_64-unix/wine").path)[.systemFileNumber] as? Int
+        let ub = try fm.attributesOfItem(atPath: e.appendingPathComponent("lib/wine/x86_64-unix/wine").path)[.systemFileNumber] as? Int
+        XCTAssertNotEqual(ul, ub, "the re-exec'd loader keys Wine's temp dir by inode")
+        // Everything else is hardlinked, not copied.
         let a = try fm.attributesOfItem(atPath: dir.appendingPathComponent("lib/wine/x86_64-windows/kernel32.dll").path)
         XCTAssertEqual((a[.referenceCount] as? Int) ?? 0, 2)
         // Cached on second call; wined3d uses the base engine directly.

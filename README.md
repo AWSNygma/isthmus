@@ -8,7 +8,9 @@ D3DMetal if you import it.
 - **One-click stores.** Install Steam, Epic, GOG Galaxy, Battle.net, EA app or
   Ubisoft Connect into a bottle.
 - **A real library.** Installed Steam, Epic and GOG games show up with cover
-  art. Double-click to play, or add any game to Launchpad as a Mac app.
+  art, and so do games installed from their own installers (found through
+  their Start Menu shortcuts). Double-click to play, or add any game to
+  Launchpad as a Mac app with its own icon.
 - **Automatic graphics.** Isthmus reads each game's executable and picks a
   backend: D3DMetal for DirectX 12 (when imported), DXMT for DirectX 10/11,
   and Wine's own renderer for DirectX 9. You can override this per game.
@@ -61,6 +63,12 @@ them.
   account. Isthmus does not try to bypass anti-cheat, and never will.
 - **Games that need AVX-512 or Windows kernel drivers.**
 - Some launchers' embedded web views are slow on first start.
+- Switching a Steam game to a different graphics backend restarts Steam,
+  because games inherit Steam's runtime.
+- Retina mode takes effect the next time a bottle's programs start.
+- Bottles live in `~/Library/Application Support/Isthmus`. Storing them on an
+  external drive isn't supported yet; Steam libraries on external drives
+  work, by adding them in Steam (they appear under `Z:\Volumes\…`).
 
 ## Command line
 
@@ -77,6 +85,7 @@ isthmus run -b Games ~/Downloads/setup.exe
 isthmus run -b Games --graphics dxvk path/to/game.exe
 isthmus bottle set Games hud on        # Metal performance HUD
 isthmus shortcut -b Games --game "Hades"   # add to Launchpad
+isthmus selftest                       # check every graphics backend on this Mac
 ```
 
 ## Building from source

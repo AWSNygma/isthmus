@@ -32,7 +32,7 @@ public struct PEFile: Sendable {
         case 0xAA64: machine = .arm64
         case let m: machine = .other(m)
         }
-        let nSections = Int(data.u16(coff + 2))
+        let nSections = min(Int(data.u16(coff + 2)), 96)
         let optSize = Int(data.u16(coff + 16))
         let opt = coff + 20
         let magic = data.u16(opt)
@@ -52,13 +52,7 @@ public struct PEFile: Sendable {
         sections = secs
         resourceRVA = dir(2).rva
 
-        func offset(_ rva: UInt32) -> Int? {
-            for s in secs where rva >= s.va && rva < s.va + max(s.vsize, s.rawSize) {
-                let o = Int(rva - s.va + s.rawPtr)
-                return o < data.count ? o : nil
-            }
-            return nil
-        }
+        func offset(_ rva: UInt32) -> Int? { PEFile.fileOffset(rva, sections: secs, count: data.count) }
         func cString(_ rva: UInt32) -> String? {
             guard let o = offset(rva) else { return nil }
             var end = o
@@ -129,10 +123,17 @@ public struct PEFile: Sendable {
         }
     }
 
-    private func offset(_ rva: UInt32) -> Int? {
-        for s in sections where rva >= s.va && rva < s.va + max(s.vsize, s.rawSize) {
-            let o = Int(rva - s.va + s.rawPtr)
-            return o < data.count ? o : nil
+    private func offset(_ rva: UInt32) -> Int? { PEFile.fileOffset(rva, sections: sections, count: data.count) }
+
+    /// RVA → file offset. Int arithmetic: corrupt headers must not trap on UInt32 overflow.
+    private static func fileOffset(_ rva: UInt32, sections: [Section], count: Int) -> Int? {
+        let r = Int(rva)
+        for s in sections {
+            let va = Int(s.va), size = Int(max(s.vsize, s.rawSize))
+            if r >= va && r < va + size {
+                let o = r - va + Int(s.rawPtr)
+                return o >= 0 && o < count ? o : nil
+            }
         }
         return nil
     }
@@ -164,7 +165,7 @@ public struct PEFile: Sendable {
         for item in resEntries(at: typeDir.offset, base: base) where item.isDir {
             guard let lang = resEntries(at: item.offset, base: base).first, !lang.isDir, lang.offset + 8 <= data.count else { continue }
             let rva = data.u32(lang.offset), size = Int(data.u32(lang.offset + 4))
-            guard let o = offset(rva), o + size <= data.count, size > 0 else { continue }
+            guard let o = offset(rva), size > 0, size <= data.count - o else { continue }
             out.append((item.id, data.subdata(in: data.startIndex + o ..< data.startIndex + o + size)))
         }
         return out
@@ -176,7 +177,7 @@ public struct PEFile: Sendable {
         let icons = Dictionary(resources(type: 3).compactMap { e in e.id.map { ($0, e.data) } }, uniquingKeysWith: { a, _ in a })
         let count = Int(group.u16(4))
         var entries: [(header: Data, image: Data)] = []
-        for i in 0..<count {
+        for i in 0..<min(count, 64) {
             let e = 6 + i * 14
             guard e + 14 <= group.count else { break }
             let id = UInt32(group.u16(e + 12))

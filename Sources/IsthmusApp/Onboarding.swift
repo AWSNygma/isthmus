@@ -118,6 +118,8 @@ struct OpenProgramSheet: View {
     @State private var addToLibrary = true
     @State private var arguments = ""
 
+    private var isRunnable: Bool { LaunchPlanner.runnableExtensions.contains(url.pathExtension.lowercased()) }
+
     private var isInstaller: Bool {
         let n = url.lastPathComponent.lowercased()
         return url.pathExtension.lowercased() == "msi" || ["setup", "install", "redist"].contains { n.contains($0) }
@@ -126,6 +128,12 @@ struct OpenProgramSheet: View {
     var body: some View {
         Form {
             LabeledContent("Program", value: url.lastPathComponent)
+            if !isRunnable {
+                Label(url.pathExtension.lowercased() == "app"
+                      ? "This is a Mac app. Open it from Finder."
+                      : "Isthmus can run Windows .exe, .msi, .bat and .lnk files.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
             Picker("Bottle", selection: $bottleID) {
                 ForEach(model.bottles) { Text($0.name).tag($0.id) }
             }
@@ -146,10 +154,10 @@ struct OpenProgramSheet: View {
                 Button(isInstaller ? "Install" : "Run") {
                     guard let b = model.bottle(bottleID) else { return }
                     if addToLibrary && !isInstaller { model.pin(url, in: b) }
-                    model.run(url, in: b, arguments: arguments.split(separator: " ").map(String.init))
+                    model.run(url, in: b, arguments: ArgumentSplitter.split(arguments))
                     dismiss()
                 }
-                .disabled(model.bottle(bottleID) == nil)
+                .disabled(model.bottle(bottleID) == nil || !isRunnable)
             }
         }
     }
