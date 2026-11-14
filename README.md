@@ -34,8 +34,9 @@ D3DMetal if you import it.
 2. Open it. The first-run screen installs Rosetta 2 if needed, downloads the
    engine (about 280 MB) and creates your first bottle with Steam.
 
-Until releases are notarized, macOS blocks the first launch. Right-click
-Isthmus.app, choose **Open**, then confirm.
+Until releases are notarized, macOS blocks the first launch. Open Isthmus
+once, then go to **System Settings → Privacy & Security** and click **Open
+Anyway** next to the Isthmus message.
 
 ### Optional: D3DMetal for DirectX 12
 
