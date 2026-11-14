@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Toolchain
+        run: |
+          swift --version
+          brew install mingw-w64
+      - name: Unit tests
+        run: swift test --parallel
+      - name: Validate recipe and catalog JSON
+        run: |
+          for f in Sources/IsthmusKit/Resources/recipes/*.json Sources/IsthmusKit/Resources/*.json; do
+            python3 -m json.tool "$f" > /dev/null || { echo "invalid JSON: $f"; exit 1; }
+          done
+      - name: Build Windows probes
+        run: make -C tests/winprobes
+      - name: Build app bundle
+        run: scripts/bundle-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Isthmus-app
+          path: dist/Isthmus-*.zip

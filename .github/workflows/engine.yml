@@ -1,0 +1,70 @@
+name: Engine
+
+# Builds the Wine engine from CodeWeavers' LGPL source release.
+# Run manually, or push a tag `engine-<version>` to publish a release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['engine-*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      ISTHMUS_WORK: ${{ github.workspace }}/.work
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rosetta 2
+        run: sudo softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Build tools
+        run: brew install mingw-w64 bison gettext pkgconf ccache micromamba xz
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: .work/ccache
+          key: ccache-${{ hashFiles('engine/engine.env', 'engine/patches/**') }}-${{ github.run_id }}
+          restore-keys: ccache-${{ hashFiles('engine/engine.env', 'engine/patches/**') }}-
+
+      - name: Fetch sources
+        run: engine/build.sh fetch
+      - name: Dependencies (conda-forge osx-64)
+        run: engine/build.sh deps
+      - name: Configure
+        run: engine/build.sh configure
+      - name: Build
+        run: engine/build.sh build
+      - name: Install + bundle
+        run: |
+          engine/build.sh install
+          engine/build.sh bundle
+
+      - name: Integration tests
+        # Hosted runners are VMs with limited Metal; GPU probes may fail there.
+        continue-on-error: true
+        run: |
+          tests/integration/run.sh .work/out/isthmus-engine-*.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: isthmus-engine
+          path: |
+            .work/out/*.tar.xz
+            .work/out/*.sha256
+            integration-report.txt
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/engine-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" .work/out/*.tar.xz .work/out/*.sha256 \
+            --title "Engine ${GITHUB_REF_NAME#engine-}" \
+            --notes "Built from CodeWeavers CrossOver $(. engine/engine.env; echo $CX_SOURCE_VERSION) LGPL sources by engine/build.sh at ${GITHUB_SHA}. See THIRD_PARTY_NOTICES.md."
