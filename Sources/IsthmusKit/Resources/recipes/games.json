@@ -2,33 +2,105 @@
   {
     "id": "cyberpunk-2077",
     "name": "Cyberpunk 2077",
-    "match": { "steamAppID": [1091500], "gogID": ["1423049311", "1207664643"], "exe": ["cyberpunk2077.exe"] },
+    "match": {
+      "steamAppID": [
+        1091500
+      ],
+      "gogID": [
+        "1423049311",
+        "1207664643"
+      ],
+      "exe": [
+        "cyberpunk2077.exe"
+      ]
+    },
     "status": "works",
-    "settings": { "graphics": "d3dmetal", "advertiseAVX": true, "components": ["vcrun2022"] },
+    "settings": {
+      "graphics": "d3dmetal",
+      "advertiseAVX": true,
+      "components": [
+        "vcrun2022"
+      ]
+    },
     "notes": "DirectX 12 only, so it needs D3DMetal (import the Game Porting Toolkit). Patch 2.0+ requires AVX, which needs macOS 15 or newer. Not yet verified on Isthmus."
   },
   {
     "id": "elden-ring",
     "name": "ELDEN RING",
-    "match": { "steamAppID": [1245620], "exe": ["eldenring.exe", "start_protected_game.exe"] },
+    "match": {
+      "steamAppID": [
+        1245620
+      ],
+      "exe": [
+        "eldenring.exe",
+        "start_protected_game.exe"
+      ]
+    },
     "status": "issues",
-    "settings": { "graphics": "d3dmetal" },
+    "settings": {
+      "graphics": "d3dmetal"
+    },
     "notes": "DirectX 12 only. Easy Anti-Cheat guards online play, so expect offline mode only. Not yet verified on Isthmus."
   },
   {
     "id": "baldurs-gate-3",
     "name": "Baldur's Gate 3",
-    "match": { "steamAppID": [1086940], "gogID": ["1456460669"], "exe": ["bg3_dx11.exe", "bg3.exe"] },
+    "match": {
+      "steamAppID": [
+        1086940
+      ],
+      "gogID": [
+        "1456460669"
+      ],
+      "exe": [
+        "bg3_dx11.exe",
+        "bg3.exe"
+      ]
+    },
     "status": "works",
-    "settings": { "arguments": ["--skip-launcher"] },
+    "settings": {
+      "arguments": [
+        "--skip-launcher"
+      ]
+    },
     "notes": "Skips Larian's launcher, which is the most common point of failure. There's also a native macOS version on Steam if you own it there. Not yet verified on Isthmus."
   },
   {
     "id": "witcher-3",
     "name": "The Witcher 3: Wild Hunt",
-    "match": { "steamAppID": [292030], "gogID": ["1207664663", "1495134320"], "exe": ["witcher3.exe"] },
+    "match": {
+      "steamAppID": [
+        292030
+      ],
+      "gogID": [
+        "1207664663",
+        "1495134320"
+      ],
+      "exe": [
+        "witcher3.exe"
+      ]
+    },
     "status": "works",
-    "settings": { "graphics": "dxmt" },
+    "settings": {
+      "graphics": "dxmt"
+    },
     "notes": "Use the DirectX 11 executable (bin\\x64\\witcher3.exe); the DX12 build needs D3DMetal. Not yet verified on Isthmus."
+  },
+  {
+    "id": "one-more-lawn",
+    "name": "One More Lawn",
+    "match": {
+      "steamAppID": [
+        5378110
+      ],
+      "exe": [
+        "onemorelawn.exe"
+      ]
+    },
+    "status": "works",
+    "settings": {
+      "graphics": "dxmt"
+    },
+    "notes": "Unreal Engine; links DirectX 11 and 12 and runs its DX11 path on DXMT. Verified on Isthmus 0.2.0, engine 26.3.0-i1, M5 Max, macOS 26.6.2: launched through Steam and the game process ran for 43 minutes. Frame rate not measured."
   }
 ]

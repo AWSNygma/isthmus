@@ -64,6 +64,12 @@ Isthmus instead builds a **runtime overlay** per (engine, backend) pair in
   backend just means running a different `bin/wine`.
 - Overlays are rebuilt whenever an engine or D3DMetal import changes.
 
+Store clients are found from live process state, not from a saved record.
+Steam restarts itself after every update, so a remembered pid goes stale.
+`LauncherProcess.find` looks for the client in `ps`, uses `lsof` to keep
+only processes with files open in this bottle's prefix, and reads the
+runtime from the path its `ntdll.so` is mapped from.
+
 Each overlay gets its **own copy of the two loader binaries** (`bin/wine` and
 `lib/wine/x86_64-unix/wine`); everything else is hardlinked. CodeWeavers'
 Dock-name hack (CW HACK 22144, enabled by setting `WINEDLLPATH`) re-execs
@@ -85,6 +91,8 @@ because many engines `LoadLibrary` their renderer):
 
 | DirectX | D3DMetal imported | Backend |
 |---|---|---|
+| 11 and 12 (most Unreal/Unity games) | yes | D3DMetal |
+| 11 and 12 | no | DXMT (the game falls back to its DX11 renderer) |
 | 12 | yes | D3DMetal |
 | 12 | no | vkd3d (wined3d build) |
 | 10/11 | any | DXMT |
@@ -123,10 +131,9 @@ Everything goes through `LaunchService` (app, CLI, Launchpad shortcuts):
 5. Install missing runtimes the recipe asks for.
 6. **Store-client runtime check.** A game started through a running Steam
    inherits Steam's DLL directory, not the one chosen for the game. Isthmus
-   records which runtime started the client
-   (`cache/launcher-runtime.json`, with the client's pid). When a game needs
-   a different one, it asks Steam to quit (`steam.exe -shutdown`) and waits
-   for it. It never force-kills, because other games in the bottle would die
+   finds the running client and the runtime it loaded (see below). When a
+   game needs a different one, it asks Steam to quit (`steam.exe -shutdown`)
+   and waits for that process to exit. It never force-kills, because other games in the bottle would die
    with it. If Steam doesn't quit, the user gets an explanation instead.
 
 Running state comes from the bottle's wineserver socket

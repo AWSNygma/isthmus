@@ -59,6 +59,8 @@ final class BackendResolverTests: XCTestCase {
         XCTAssertEqual(BackendResolver.resolve(.auto, directX: .d3d9, d3dmetalAvailable: true), .wined3d)
         XCTAssertEqual(BackendResolver.resolve(.auto, directX: .unknown, d3dmetalAvailable: true), .d3dmetal)
         XCTAssertEqual(BackendResolver.resolve(.auto, directX: .unknown, d3dmetalAvailable: false), .dxmt)
+        XCTAssertEqual(BackendResolver.resolve(.auto, directX: .d3d11and12, d3dmetalAvailable: false), .dxmt)
+        XCTAssertEqual(BackendResolver.resolve(.auto, directX: .d3d11and12, d3dmetalAvailable: true), .d3dmetal)
     }
 
     func testExplicitD3DMetalFallsBackWhenMissing() {
@@ -69,6 +71,7 @@ final class BackendResolverTests: XCTestCase {
 
     func testDirectXFromImports() {
         XCTAssertEqual(DirectXLevel(imports: ["KERNEL32.dll", "D3D12.dll", "dxgi.dll"]), .d3d12)
+        XCTAssertEqual(DirectXLevel(imports: ["d3d11.dll", "D3D12.dll", "dxgi.dll"]), .d3d11and12, "e.g. One More Lawn")
         XCTAssertEqual(DirectXLevel(imports: ["dxgi.dll"]), .d3d11)
         XCTAssertEqual(DirectXLevel(imports: ["d3d9.dll"]), .d3d9)
         XCTAssertEqual(DirectXLevel(imports: ["d3d8.dll"]), .d3d9)

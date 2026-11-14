@@ -91,7 +91,8 @@ public struct PEFile: Sendable {
         let fromImports = DirectXLevel(imports: imports)
         if fromImports != .unknown { return fromImports }
         let has12 = mentions("d3d12.dll"), has11 = mentions("d3d11.dll")
-        if has12 && !has11 { return .d3d12 }
+        if has12 && has11 { return .d3d11and12 }
+        if has12 { return .d3d12 }
         if has11 { return .d3d11 }
         if mentions("d3d9.dll") { return .d3d9 }
         return .unknown

@@ -9,7 +9,7 @@ struct IsthmusCLI: AsyncParsableCommand {
         abstract: "Run Windows games on Apple silicon Macs.",
         version: Isthmus.version,
         subcommands: [Doctor.self, EngineCmd.self, BottleCmd.self, Run.self, Play.self, Games.self,
-                      Install.self, Kill.self, D3DMetalCmd.self, Recipes.self, Shortcut.self, SelfTestCmd.self]
+                      Install.self, Kill.self, D3DMetalCmd.self, Recipes.self, Shortcut.self, SelfTestCmd.self, Inspect.self]
     )
 }
 
@@ -497,5 +497,34 @@ struct SelfTestCmd: AsyncParsableCommand {
         let failed = results.filter { $0.outcome == .fail && $0.required }
         print(failed.isEmpty ? "All required checks passed." : "\(failed.count) required check(s) failed.")
         if !failed.isEmpty { throw ExitCode(1) }
+    }
+}
+
+// MARK: inspect
+
+struct Inspect: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Show what Isthmus detects about a Windows executable.")
+    @OptionGroup var common: Common
+    @Argument var exe: String
+
+    @Option(name: .shortAndLong, help: "Also report running store clients in this bottle.") var bottle: String?
+
+    func run() throws {
+        if let bottle {
+            let b = try BottleStore(paths: common.paths).bottle(bottle)
+            for id in ["steam", "epic"] {
+                if let f = LauncherProcess.find(id, in: b) { print("\(id): pid \(f.pid), runtime \(f.root)") } else { print("\(id): not running") }
+            }
+            if exe == "-" { return }
+        }
+        let url = URL(fileURLWithPath: (exe as NSString).expandingTildeInPath)
+        let pe = try PEFile(url: url)
+        print("machine:   \(pe.machine)")
+        print("imports:   \(pe.imports.joined(separator: ", "))")
+        for dll in ["d3d9.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "vulkan-1.dll", "opengl32.dll"] {
+            print("mentions \(dll.padding(toLength: 13, withPad: " ", startingAt: 0)) \(pe.mentions(dll))")
+        }
+        print("directX:   \(pe.directXLevel)")
+        print("icon:      \(pe.iconData() != nil ? "yes" : "no")")
     }
 }

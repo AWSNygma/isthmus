@@ -231,10 +231,34 @@ final class WineServerTests: TempHomeTestCase {
         XCTAssertTrue(WineServer.isRunning(prefix: prefix))
     }
 
-    func testLauncherRecordIgnoredWhenBottleNotRunning() throws {
+    func testLauncherNotFoundWhenBottleNotRunning() throws {
         let b = try BottleStore(paths: paths).create(name: "LR")
-        LauncherRuntimeRecord.write(LauncherRuntimeRecord(root: "/x", launcher: "steam", started: Date(), pid: getpid()), for: b)
-        XCTAssertNil(LauncherRuntimeRecord.read(b))
+        XCTAssertNil(LauncherProcess.find("steam", in: b))
+    }
+
+    func testLauncherProcessParsing() {
+        // Real `ps -axo pid=,command=` lines from a bottle running Steam.
+        let ps = #"""
+        14809 C:\Program Files (x86)\Steam\steam.exe 
+        14820 C:\Program Files (x86)\Steam\bin\cef\cef.win64\steamwebhelper.exe -nocrashdialog -steampath=C:\Program Files (x86)\Steam\steam.exe
+          301 /usr/sbin/cfprefsd agent
+        15001 C:\windows\system32\explorer.exe /desktop
+        16000 C:\Games\Mods\steam.exe.bak.exe
+        """#
+        XCTAssertEqual(LauncherProcess.candidates(psOutput: ps, exe: "steam.exe"), [14809])
+        let prefix = "/Users/x/Library/Application Support/Isthmus/Bottles/games/prefix"
+        let lsof = """
+        p14809
+        fcwd
+        n\(prefix)/drive_c/Program Files (x86)/Steam
+        ftxt
+        n/Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-dxmt-f3/lib/wine/x86_64-unix/ntdll.so
+        """
+        XCTAssertEqual(LauncherProcess.runtimeRoot(lsofOutput: lsof, prefix: prefix),
+                       "/Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-dxmt-f3")
+        XCTAssertNil(LauncherProcess.runtimeRoot(lsofOutput: lsof, prefix: "/Users/x/other/prefix"), "Steam in another bottle")
+        XCTAssertEqual(LaunchService.backendName("/r/Runtime/26.3.0-i1-dxmt-f3"), GraphicsBackend.dxmt.displayName)
+        XCTAssertEqual(LaunchService.backendName("/r/Engines/26.3.0-i1"), GraphicsBackend.wined3d.displayName)
     }
 }
 

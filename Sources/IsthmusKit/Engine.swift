@@ -232,5 +232,5 @@ public struct EngineManager: Sendable {
 
 public enum Isthmus {
     public static let repository = "AWSNygma/isthmus"
-    public static let version = "0.2.0"
+    public static let version = "0.2.1"
 }

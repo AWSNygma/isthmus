@@ -38,42 +38,47 @@ public enum WineServer {
     public static func isRunning(_ bottle: Bottle) -> Bool { isRunning(prefix: bottle.prefix) }
 }
 
-/// Remembers which runtime a bottle's store launcher (Steam, Epic) was started
-/// from. Games started *through* a launcher inherit the launcher's runtime, so
-/// a backend change means the launcher must restart.
-public struct LauncherRuntimeRecord: Codable, Sendable, Equatable {
-    public var root: String
-    public var launcher: String
-    public var started: Date
-    /// Host pid of the client process (Wine keeps the pid across its exec chain).
-    public var pid: Int32?
+/// Finds a running store client (Steam, Epic) in a bottle and the runtime
+/// it loaded, from live process state rather than records: Steam restarts
+/// itself after updates, so any remembered pid goes stale.
+public enum LauncherProcess {
+    public struct Found: Sendable, Equatable { public var pid: Int32; public var root: String }
 
-    static func url(_ bottle: Bottle) -> URL { bottle.cache.appendingPathComponent("launcher-runtime.json") }
+    /// Lowercased executable leaf per launcher id.
+    static let executables = ["steam": "steam.exe", "epic": "epicgameslauncher.exe"]
 
-    /// The record, if that client is demonstrably still running.
-    public static func read(_ bottle: Bottle) -> LauncherRuntimeRecord? {
-        guard WineServer.isRunning(bottle),
-              let r = try? JSON.read(LauncherRuntimeRecord.self, from: url(bottle)) else { return nil }
-        if let pid = r.pid {
-            guard kill(pid, 0) == 0, processName(pid)?.lowercased().contains(r.launcher == "steam" ? "steam" : "epic") == true else { return nil }
-        } else if r.launcher == "epic" {
-            guard (try? Shell.run("/usr/bin/pgrep", ["-f", "EpicGamesLauncher.exe"], allowFailure: true))?.status == 0 else { return nil }
+    public static func find(_ launcher: String, in bottle: Bottle) -> Found? {
+        guard WineServer.isRunning(bottle), let exe = executables[launcher],
+              let ps = try? Shell.run("/bin/ps", ["-axo", "pid=,command="], allowFailure: true) else { return nil }
+        for pid in candidates(psOutput: ps.output, exe: exe) {
+            guard let lsof = try? Shell.run("/usr/sbin/lsof", ["-p", "\(pid)", "-Fn"], allowFailure: true),
+                  let root = runtimeRoot(lsofOutput: lsof.output, prefix: bottle.prefix.path) else { continue }
+            return Found(pid: pid, root: root)
         }
-        return r
+        return nil
     }
 
-    static func processName(_ pid: Int32) -> String? {
-        var buf = [CChar](repeating: 0, count: 4096)
-        guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else {
-            // Windows processes rename argv[0]; fall back to ps.
-            return (try? Shell.run("/bin/ps", ["-o", "command=", "-p", "\(pid)"], allowFailure: true))?.output
+    /// Wine processes show their Windows command line; the client's own
+    /// process is the one whose program (not an argument) is `exe`.
+    static func candidates(psOutput: String, exe: String) -> [Int32] {
+        psOutput.split(separator: "\n").compactMap { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard let space = t.firstIndex(of: " "), let pid = Int32(t[..<space]) else { return nil }
+            let cmd = t[t.index(after: space)...].trimmingCharacters(in: .whitespaces).lowercased()
+            // The program ends at the first ".exe" followed by a space or the end.
+            guard cmd.count > 3, cmd.dropFirst().hasPrefix(":\\"),
+                  let end = cmd.range(of: #"\.exe(?=\s|$)"#, options: .regularExpression) else { return nil }
+            let program = cmd[..<end.upperBound]
+            return program.hasSuffix("\\" + exe) ? pid : nil
         }
-        let path = String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        let cmd = (try? Shell.run("/bin/ps", ["-o", "command=", "-p", "\(pid)"], allowFailure: true))?.output ?? ""
-        return path + " " + cmd
     }
 
-    public static func write(_ record: LauncherRuntimeRecord, for bottle: Bottle) {
-        try? JSON.write(record, to: url(bottle))
+    /// The process belongs to `prefix` if it has files open inside it; its
+    /// runtime is wherever its ntdll.so is mapped from.
+    static func runtimeRoot(lsofOutput: String, prefix: String) -> String? {
+        let names = lsofOutput.split(separator: "\n").filter { $0.hasPrefix("n") }.map { String($0.dropFirst()) }
+        guard names.contains(where: { $0.hasPrefix(prefix + "/") }) else { return nil }
+        let suffix = "/lib/wine/x86_64-unix/ntdll.so"
+        return names.first { $0.hasSuffix(suffix) }.map { String($0.dropLast(suffix.count)) }
     }
 }

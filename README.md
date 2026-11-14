@@ -21,6 +21,11 @@ D3DMetal if you import it.
 - **Scriptable.** Everything the app does is also available through the
   `isthmus` command-line tool.
 
+**Status:** an early, working release. One game has been verified end to end
+so far. [docs/STATUS.md](docs/STATUS.md) lists what's tested, what isn't yet,
+and the known limitations. Release notes are in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## Requirements
 
 - An Apple silicon Mac (M1 or newer)
@@ -86,6 +91,7 @@ isthmus run -b Games --graphics dxvk path/to/game.exe
 isthmus bottle set Games hud on        # Metal performance HUD
 isthmus shortcut -b Games --game "Hades"   # add to Launchpad
 isthmus selftest                       # check every graphics backend on this Mac
+isthmus inspect path/to/game.exe       # what Isthmus detects (DirectX version, imports, icon)
 ```
 
 ## Building from source

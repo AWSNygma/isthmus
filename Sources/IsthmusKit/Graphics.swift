@@ -120,12 +120,17 @@ public struct D3DMetalStore: Sendable {
 
 /// Which DirectX generation an executable uses, from its PE imports.
 public enum DirectXLevel: Int, Sendable, Comparable, Codable {
-    case unknown = 0, d3d9 = 9, d3d10 = 10, d3d11 = 11, d3d12 = 12
+    /// `d3d11and12`: links both. Unreal/Unity games try 12 and fall back to
+    /// 11; Chromium/Electron-based games link 12 for WebGPU but render with 11.
+    case unknown = 0, d3d9 = 9, d3d10 = 10, d3d11 = 11, d3d11and12 = 13, d3d12 = 12
     public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 
     public init(imports: [String]) {
         let set = Set(imports.map { $0.lowercased() })
-        if set.contains("d3d12.dll") || set.contains("d3d12core.dll") { self = .d3d12 }
+        let has12 = set.contains("d3d12.dll") || set.contains("d3d12core.dll")
+        let has11 = set.contains("d3d11.dll")
+        if has12 && has11 { self = .d3d11and12 }
+        else if has12 { self = .d3d12 }
         else if set.contains("d3d11.dll") || set.contains("dxgi.dll") { self = .d3d11 }
         else if set.contains("d3d10.dll") || set.contains("d3d10_1.dll") || set.contains("d3d10core.dll") { self = .d3d10 }
         else if set.contains(where: { $0.hasPrefix("d3d9") || $0.hasPrefix("d3d8") }) { self = .d3d9 }
@@ -142,6 +147,10 @@ public enum BackendResolver {
         case .auto:
             switch directX {
             case .d3d12: return d3dmetalAvailable ? .d3dmetal : .wined3d
+            // Games linking both (most Unreal/Unity titles) try DX12 first and
+            // fall back to DX11. Without D3DMetal, DXMT handles the DX11 path:
+            // One More Lawn (Unreal) ran 43 minutes this way in testing.
+            case .d3d11and12: return d3dmetalAvailable ? .d3dmetal : .dxmt
             case .d3d11, .d3d10: return .dxmt
             case .d3d9: return .wined3d
             case .unknown: return d3dmetalAvailable ? .d3dmetal : .dxmt
