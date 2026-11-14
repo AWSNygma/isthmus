@@ -1,0 +1,51 @@
+[
+  {
+    "id": "riot-vanguard",
+    "name": "Riot Games (VALORANT, League of Legends)",
+    "match": { "exe": ["riotclientservices.exe", "valorant.exe", "valorant-win64-shipping.exe", "leagueclient.exe"] },
+    "status": "blocked",
+    "settings": {},
+    "notes": "Riot Vanguard is a Windows kernel driver. No compatibility layer can load it, and trying risks an account flag. League of Legends has a native macOS client.",
+    "sources": ["https://support-valorant.riotgames.com/hc/en-us/articles/360046160933"]
+  },
+  {
+    "id": "fortnite",
+    "name": "Fortnite",
+    "match": { "epicAppName": ["Fortnite"], "exe": ["fortniteclient-win64-shipping.exe", "fortnitelauncher.exe"] },
+    "status": "blocked",
+    "settings": {},
+    "notes": "Epic doesn't allow its anti-cheat to run under Wine or Proton. Play through Xbox Cloud Gaming or GeForce NOW in Safari instead."
+  },
+  {
+    "id": "destiny-2",
+    "name": "Destiny 2",
+    "match": { "steamAppID": [1085660], "exe": ["destiny2.exe", "destiny2launcher.exe"] },
+    "status": "blocked",
+    "settings": {},
+    "notes": "Bungie blocks Destiny 2 on compatibility layers (BattlEye), and has banned accounts for it. Cloud gaming works."
+  },
+  {
+    "id": "apex-legends",
+    "name": "Apex Legends",
+    "match": { "steamAppID": [1172470], "exe": ["r5apex.exe", "r5apex_dx12.exe"] },
+    "status": "blocked",
+    "settings": {},
+    "notes": "EA turned off compatibility-layer support for Apex's Easy Anti-Cheat in late 2024."
+  },
+  {
+    "id": "call-of-duty",
+    "name": "Call of Duty (Ricochet)",
+    "match": { "steamAppID": [1938090, 2933620, 3595230], "exe": ["cod.exe", "cod24-cod.exe"] },
+    "status": "blocked",
+    "settings": {},
+    "notes": "Ricochet anti-cheat uses a Windows kernel driver."
+  },
+  {
+    "id": "gta-v",
+    "name": "Grand Theft Auto V",
+    "match": { "steamAppID": [271590, 3240220], "exe": ["gta5.exe", "gta5_enhanced.exe", "playgtav.exe"] },
+    "status": "issues",
+    "settings": { "graphics": "d3dmetal" },
+    "notes": "Rockstar added BattlEye to GTA Online in 2024 and blocks it on compatibility layers. Story mode may still work. Not yet verified on Isthmus."
+  }
+]

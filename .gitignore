@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+.work/
+dist/
+*.xcodeproj
+tests/winprobes/build/
+.DS_Store

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "steam",
+    "name": "Steam",
+    "installerURL": "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe",
+    "fileName": "SteamSetup.exe",
+    "silentArguments": ["/S"],
+    "executable": "C:\\Program Files (x86)\\Steam\\steam.exe",
+    "notes": "Steam updates itself on first launch; this can take a few minutes."
+  },
+  {
+    "id": "epic",
+    "name": "Epic Games Launcher",
+    "installerURL": "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi",
+    "fileName": "EpicGamesLauncherInstaller.msi",
+    "silentArguments": ["/qn"],
+    "executable": "C:\\Program Files (x86)\\Epic Games\\Launcher\\Portal\\Binaries\\Win64\\EpicGamesLauncher.exe"
+  },
+  {
+    "id": "gog",
+    "name": "GOG Galaxy",
+    "installerURL": "https://webinstallers.gog-statics.com/download/GOG_Galaxy_2.0.exe",
+    "fileName": "GOG_Galaxy_2.0.exe",
+    "silentArguments": [],
+    "executable": "C:\\Program Files (x86)\\GOG Galaxy\\GalaxyClient.exe",
+    "notes": "GOG games are DRM-free; you can also run their offline installers directly."
+  },
+  {
+    "id": "battlenet",
+    "name": "Battle.net",
+    "installerURL": "https://downloader.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe",
+    "fileName": "Battle.net-Setup.exe",
+    "silentArguments": ["--lang=enUS", "--installpath=C:\\Program Files (x86)\\Battle.net"],
+    "executable": "C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe"
+  },
+  {
+    "id": "ea",
+    "name": "EA app",
+    "installerURL": "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
+    "fileName": "EAappInstaller.exe",
+    "silentArguments": [],
+    "executable": "C:\\Program Files\\Electronic Arts\\EA Desktop\\EA Desktop\\EADesktop.exe"
+  },
+  {
+    "id": "ubisoft",
+    "name": "Ubisoft Connect",
+    "installerURL": "https://static3.cdn.ubi.com/orbit/launcher_installer/UbisoftConnectInstaller.exe",
+    "fileName": "UbisoftConnectInstaller.exe",
+    "silentArguments": ["/S"],
+    "executable": "C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\UbisoftConnect.exe"
+  }
+]

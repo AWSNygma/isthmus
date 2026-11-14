@@ -1,0 +1,21 @@
+# x86_64 (osx-64) runtime + build dependencies for the Wine engine, from
+# conda-forge. Using conda-forge avoids needing an Intel Homebrew in /usr/local
+# (which needs sudo) and gives relocatable @rpath dylibs we can bundle.
+freetype
+gnutls
+glib
+gstreamer
+gst-plugins-base
+gst-plugins-good
+gst-plugins-bad
+gst-libav
+sdl2
+libffi
+gmp
+nettle
+pcre2
+libintl-devel
+libpng
+zlib
+libvulkan-headers
+moltenvk

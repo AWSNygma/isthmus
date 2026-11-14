@@ -1,0 +1,26 @@
+[
+  {
+    "id": "steam-client",
+    "name": "Steam",
+    "match": { "exe": ["steam.exe"] },
+    "status": "works",
+    "settings": {},
+    "notes": "The engine already applies CodeWeavers' Steam web-helper fixes (--no-sandbox, in-process GPU). First launch self-updates for a few minutes."
+  },
+  {
+    "id": "epic-launcher",
+    "name": "Epic Games Launcher",
+    "match": { "exe": ["epicgameslauncher.exe"] },
+    "status": "issues",
+    "settings": { "components": ["vcrun2022"] },
+    "notes": "Login and store pages are embedded web views and can be slow on first start."
+  },
+  {
+    "id": "battlenet",
+    "name": "Battle.net",
+    "match": { "exe": ["battle.net.exe", "battle.net launcher.exe"] },
+    "status": "issues",
+    "settings": { "graphics": "dxmt" },
+    "notes": "The client UI renders through Direct3D 11."
+  }
+]

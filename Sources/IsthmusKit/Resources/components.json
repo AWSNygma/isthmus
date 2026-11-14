@@ -1,0 +1,67 @@
+[
+  {
+    "id": "vcrun2022",
+    "name": "Visual C++ 2015\u20132022 Redistributable",
+    "summary": "Runtime most modern Windows games need (covers 2015, 2017, 2019 and 2022).",
+    "installers": [
+      {
+        "url": "https://aka.ms/vs/17/release/vc_redist.x86.exe",
+        "fileName": "vc_redist.x86.exe",
+        "arguments": [
+          "/install",
+          "/quiet",
+          "/norestart"
+        ]
+      },
+      {
+        "url": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+        "fileName": "vc_redist.x64.exe",
+        "arguments": [
+          "/install",
+          "/quiet",
+          "/norestart"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dotnetdesktop8",
+    "name": ".NET 8 Desktop Runtime",
+    "summary": "Needed by mod managers and launchers built on .NET 8 (WPF/WinForms).",
+    "installers": [
+      {
+        "url": "https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x86.exe",
+        "fileName": "windowsdesktop-runtime-8-x86.exe",
+        "arguments": [
+          "/install",
+          "/quiet",
+          "/norestart"
+        ]
+      },
+      {
+        "url": "https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe",
+        "fileName": "windowsdesktop-runtime-8-x64.exe",
+        "arguments": [
+          "/install",
+          "/quiet",
+          "/norestart"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "webview2",
+    "name": "Microsoft Edge WebView2",
+    "summary": "Embedded browser used by some launchers' login screens.",
+    "installers": [
+      {
+        "url": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+        "fileName": "MicrosoftEdgeWebview2Setup.exe",
+        "arguments": [
+          "/silent",
+          "/install"
+        ]
+      }
+    ]
+  }
+]
