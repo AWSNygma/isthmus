@@ -19,7 +19,8 @@ struct LibraryView: View {
                 if model.games.isEmpty && !model.scanning {
                     EmptyLibrary()
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 20)], spacing: 24) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 20, alignment: .top)],
+                              alignment: .leading, spacing: 24) {
                         ForEach(filtered) { game in
                             GameCard(game: game, recipe: model.recipe(for: game), showBottle: model.bottles.count > 1)
                                 .contextMenu { GameMenu(game: game, settingsFor: $settingsFor) }
@@ -80,32 +81,33 @@ struct GameCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(.quaternary)
-                if let image {
-                    Image(nsImage: image).resizable().aspectRatio(contentMode: game.artwork != nil ? .fill : .fit)
-                        .padding(game.artwork != nil ? 0 : 36)
-                } else {
-                    Image(systemName: "gamecontroller").font(.system(size: 40)).foregroundStyle(.tertiary)
-                }
-                if hovering {
-                    Color.black.opacity(0.35)
-                    Button { model.play(game) } label: {
-                        Image(systemName: "play.fill").font(.title).frame(width: 56, height: 56)
+            // Fixed 2:3 frame; artwork is drawn inside it and clipped, so any
+            // image shape (portrait cover, wide banner, square icon) fits.
+            Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .background(.quaternary)
+                .overlay { Cover(image: image, isArtwork: game.artwork != nil) }
+                .overlay {
+                    if hovering {
+                        ZStack {
+                            Color.black.opacity(0.35)
+                            Button { model.play(game) } label: {
+                                Image(systemName: "play.fill").font(.title).frame(width: 56, height: 56)
+                            }
+                            .buttonStyle(.plain)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .disabled(recipe?.status == .blocked)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .disabled(recipe?.status == .blocked)
                 }
-            }
-            .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(alignment: .topTrailing) { StatusBadge(recipe: recipe).padding(6) }
-            .shadow(color: .black.opacity(hovering ? 0.3 : 0.12), radius: hovering ? 10 : 4, y: 3)
-            .scaleEffect(hovering ? 1.02 : 1)
-            .animation(.easeOut(duration: 0.15), value: hovering)
-            .onHover { hovering = $0 }
-            .onTapGesture(count: 2) { model.play(game) }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(alignment: .topTrailing) { StatusBadge(recipe: recipe).padding(6) }
+                .shadow(color: .black.opacity(hovering ? 0.3 : 0.12), radius: hovering ? 10 : 4, y: 3)
+                .scaleEffect(hovering ? 1.02 : 1)
+                .animation(.easeOut(duration: 0.15), value: hovering)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+                .onTapGesture(count: 2) { model.play(game) }
 
             Text(game.name).font(.callout.weight(.medium)).lineLimit(2)
             HStack(spacing: 4) {
@@ -117,6 +119,41 @@ struct GameCard: View {
         }
         .task(id: game.id) { image = await ArtworkCache.shared.image(for: game) }
         .help(recipe?.notes ?? game.name)
+    }
+}
+
+/// Portrait art fills the card; wide art (Steam headers) sits centered over a
+/// blurred copy of itself; icons sit centered on the plain background.
+struct Cover: View {
+    let image: NSImage?
+    let isArtwork: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            if let image {
+                let wide = image.size.width > image.size.height * 0.9
+                if isArtwork && !wide {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height).clipped()
+                } else if isArtwork {
+                    ZStack {
+                        Image(nsImage: image).resizable().scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height).clipped()
+                            .blur(radius: 18).opacity(0.7)
+                        Image(nsImage: image).resizable().scaledToFit()
+                            .frame(width: geo.size.width)
+                            .shadow(radius: 6)
+                    }
+                } else {
+                    Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                        .frame(width: geo.size.width * 0.55)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+            } else {
+                Image(systemName: "gamecontroller").font(.system(size: 40)).foregroundStyle(.tertiary)
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
     }
 }
 

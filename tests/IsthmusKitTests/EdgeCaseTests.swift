@@ -382,3 +382,24 @@ final class LibraryRefreshTests: TempHomeTestCase {
         XCTAssertEqual(GameLibrary.scan(b).map(\.name), ["New"])
     }
 }
+
+final class SteamArtworkTests: TempHomeTestCase {
+    func testPrefersPortraitAcrossHashFolders() throws {
+        let root = paths.root.appendingPathComponent("Steam")
+        let app = root.appendingPathComponent("appcache/librarycache/5378110")
+        let fm = FileManager.default
+        // Layout copied from a real Steam client: one image per hash folder.
+        for (dir, file) in [("5f96", "logo.png"), ("13e6", "library_header.jpg"), ("421a", "library_capsule.jpg"), ("05a7", "library_hero.jpg")] {
+            try fm.createDirectory(at: app.appendingPathComponent(dir), withIntermediateDirectories: true)
+            try Data([1]).write(to: app.appendingPathComponent("\(dir)/\(file)"))
+        }
+        XCTAssertEqual(SteamLibrary.artwork(appID: "5378110", steamRoot: root)?.lastPathComponent, "library_capsule.jpg")
+        try fm.removeItem(at: app.appendingPathComponent("421a"))
+        XCTAssertEqual(SteamLibrary.artwork(appID: "5378110", steamRoot: root)?.lastPathComponent, "library_header.jpg",
+                       "wide header is the fallback")
+        XCTAssertNil(SteamLibrary.artwork(appID: "1", steamRoot: root))
+        // Old flat layout.
+        try Data([1]).write(to: root.appendingPathComponent("appcache/librarycache/7_library_600x900.jpg"))
+        XCTAssertEqual(SteamLibrary.artwork(appID: "7", steamRoot: root)?.lastPathComponent, "7_library_600x900.jpg")
+    }
+}

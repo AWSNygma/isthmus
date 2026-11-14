@@ -238,19 +238,26 @@ public enum SteamLibrary {
         return games
     }
 
-    /// Steam caches library art per app; newer clients nest it under a hash dir.
+    /// Cover art names in order of preference: portrait covers first (they
+    /// fit the library grid), then wide headers as a fallback.
+    static let artworkPreference = ["library_600x900_2x.jpg", "library_600x900.jpg", "library_capsule.jpg",
+                                    "library_header.jpg", "header.jpg", "library_hero.jpg"]
+
+    /// Steam caches library art per app. Older clients use flat
+    /// `<appid>_library_600x900.jpg` files; newer ones scatter each image into
+    /// its own hash-named subfolder, so search every subfolder for the most
+    /// preferred name before falling back to a less preferred one.
     static func artwork(appID: String, steamRoot: URL) -> URL? {
         let fm = FileManager.default
         let cache = steamRoot.appendingPathComponent("appcache/librarycache")
-        let names = ["library_600x900.jpg", "library_capsule.jpg", "header.jpg", "library_header.jpg"]
-        for n in ["\(appID)_library_600x900.jpg", "\(appID)_header.jpg"] {
-            let u = cache.appendingPathComponent(n)
-            if fm.fileExists(atPath: u.path) { return u }
-        }
         let dir = cache.appendingPathComponent(appID)
-        for n in names where fm.fileExists(atPath: dir.appendingPathComponent(n).path) { return dir.appendingPathComponent(n) }
-        if let subs = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
-            for s in subs { for n in names where fm.fileExists(atPath: s.appendingPathComponent(n).path) { return s.appendingPathComponent(n) } }
+        let subs = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        for name in artworkPreference {
+            for candidate in [cache.appendingPathComponent("\(appID)_\(name)"), dir.appendingPathComponent(name)] + subs.map({ $0.appendingPathComponent(name) })
+            where fm.fileExists(atPath: candidate.path) {
+                return candidate
+            }
         }
         return nil
     }
