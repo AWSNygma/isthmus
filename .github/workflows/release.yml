@@ -4,6 +4,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:   # build-only check; publishing happens only for tags
 
 permissions:
   contents: write
@@ -50,12 +51,13 @@ jobs:
 
       - name: Build
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0-ci' }}
           SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_NAME || '-' }}
           NOTARIZE_PROFILE: ${{ env.HAS_NOTARY == 'true' && 'isthmus' || '' }}
         run: VERSION="${VERSION#v}" scripts/bundle-app.sh
 
       - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
