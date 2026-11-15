@@ -193,11 +193,13 @@ struct BottleCmd: AsyncParsableCommand {
             commandName: "set",
             abstract: "Change a bottle setting.",
             discussion: """
-            Keys: windows, graphics, msync, avx, hud, retina, raytracing, metalfx, option-alt, command-ctrl, logging, env.NAME, dll.NAME
+            Keys: windows, graphics, msync, avx, fps, fps-position, fps-range, retina, raytracing, metalfx, option-alt, command-ctrl, logging, env.NAME, dll.NAME
+            fps: off, fps, compact, detailed, full (or on = compact)
             Examples:
               isthmus bottle set games graphics dxmt
               isthmus bottle set games avx off
-              isthmus bottle set games env.DXVK_HUD fps
+              isthmus bottle set games fps compact
+              isthmus bottle set games fps-position bottomright
               isthmus bottle set games dll.xinput1_3 native
             """)
         @OptionGroup var common: Common
@@ -255,7 +257,15 @@ enum BottleSettingKey {
             s.graphics = v
         case "msync": s.msync = try bool(value)
         case "avx": s.advertiseAVX = try bool(value)
-        case "hud": s.metalHUD = try bool(value)
+        case "fps", "hud", "overlay":
+            if let o = PerformanceOverlay(rawValue: value.lowercased()) { s.overlay = o }
+            else { s.metalHUD = try bool(value) }
+        case "fps-position", "hud-position":
+            guard let p = OverlayPosition(rawValue: value.lowercased().replacingOccurrences(of: "-", with: "")) else {
+                throw ValidationError("Position must be one of \(OverlayPosition.allCases.map(\.rawValue).joined(separator: ", ")).")
+            }
+            s.overlayPosition = p
+        case "fps-range": s.overlayShowRange = try bool(value)
         case "retina": s.retinaMode = try bool(value)
         case "raytracing": s.rayTracing = try bool(value)
         case "metalfx": s.metalFXUpscaling = try bool(value)
@@ -275,6 +285,7 @@ enum BottleSettingKey {
 struct LaunchOptions: ParsableArguments {
     @Option(name: .shortAndLong, help: "Bottle id or name.") var bottle: String
     @Option(help: "Force a graphics backend for this launch.") var graphics: String?
+    @Option(help: "FPS counter for this launch: off, fps, compact, detailed, full.") var fps: String?
     @Flag(help: "Return immediately instead of waiting for the program to exit.") var detach = false
     @Flag(help: "Wait for the program, keep the display awake, and exit 0 once it started (used by Launchpad shortcuts).") var hold = false
     @Flag(help: "Print Wine output to the terminal instead of the log file.") var verbose = false
@@ -286,6 +297,10 @@ func launch(target: LaunchTarget, title: String, options: LaunchOptions, paths: 
     if let g = options.graphics {
         guard let backend = GraphicsBackend(rawValue: g) else { throw ValidationError("Unknown graphics backend \(g).") }
         target.graphicsOverride = backend
+    }
+    if let f = options.fps {
+        guard let o = PerformanceOverlay(rawValue: f.lowercased()) else { throw ValidationError("--fps must be off, fps, compact, detailed or full.") }
+        target.overlayOverride = o
     }
     let service = LaunchService(paths: paths)
     let plan = try await service.prepare(bottle: b, target: target, progress: stepPrinter)

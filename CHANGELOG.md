@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 (engine 26.3.0-i2)
+
+**FPS counter.** Steam's own FPS counter can't work under Isthmus: it draws
+through Steam's overlay, which needs Windows' graphics stack. Isthmus now
+has its own, built on Apple's Metal Performance HUD, which works with every
+graphics backend (DXMT, DXVK, D3DMetal and Wine's renderer).
+
+- Choose a layout per bottle under **FPS Counter**: FPS only, FPS + frame
+  and GPU time, Detailed, or Everything. Also pick a position (top
+  left/right, bottom left/right, top center) and optionally show min/max.
+- Override it per game in Game Settings, or right-click a game and choose
+  **Play with FPS Counter**.
+- **⇧⌘F** (View menu) turns it on or off for all bottles.
+- CLI: `isthmus bottle set Games fps compact`, `fps-position bottomright`,
+  `fps-range on`, or `isthmus play … --fps fps` for one launch.
+- **Works for games started from Steam**, without restarting Steam. Games
+  launched by Steam inherit Steam's environment, so new engine patch 0002
+  reads each game's setting from a small file Isthmus writes
+  (`cache/program-env/<game>.exe.env`) inside the game's own process. Only
+  `MTL_HUD_*` settings are read from those files.
+- Bottles that had the old "Metal performance HUD" switch on keep a Detailed
+  counter. The DXVK-only HUD is gone, so there's one overlay, not two.
+
+The app downloads engine 26.3.0-i2 automatically. Games started from Steam
+need it for per-game counter settings; the bottle-wide counter works with
+either engine for games Isthmus starts directly.
+
 ## 0.2.2
 
 Fixes Steam failing to open after importing D3DMetal.

@@ -1,0 +1,69 @@
+Isthmus: per-program MTL_HUD_* overrides read by the loader.
+
+Games launched by Steam inherit Steam's environment, so per-game FPS counter
+settings from the Isthmus launcher never reached them. The loader runs in
+every Wine process before Metal initializes; it reads
+$ISTHMUS_PROGRAM_ENV/<exe>.env and applies MTL_HUD_* keys only.
+
+--- a/loader/main.c
++++ b/loader/main.c
+@@ -271,8 +271,59 @@
+ /**********************************************************************
+  *           main
+  */
++#ifdef __APPLE__
++/* Isthmus: per-program environment overrides.
++ *
++ * Programs started by another Windows program (games launched by Steam)
++ * inherit the parent's environment, so per-game settings set by the Isthmus
++ * launcher never reach them. ISTHMUS_PROGRAM_ENV points at a directory with
++ * one file per executable, "<exe name, lowercased>.env", holding KEY=VALUE
++ * lines; matching variables are set here, in every Wine process, before
++ * ntdll.so loads and before any Metal device exists. Keys are restricted to
++ * MTL_HUD_* so this can't be used to change unrelated behaviour.
++ *
++ * argv[1] is the Unix or Windows path of the executable being started. */
++static void isthmus_apply_program_env( int argc, char *argv[] )
++{
++    const char *dir = getenv( "ISTHMUS_PROGRAM_ENV" ), *name, *p;
++    char path[4096], key[64], line[512];
++    size_t n, i;
++    FILE *f;
++
++    if (!dir || !*dir || argc < 2 || !argv[1]) return;
++    name = argv[1];
++    if ((p = strrchr( name, '\\' ))) name = p + 1;
++    if ((p = strrchr( name, '/' ))) name = p + 1;
++    n = strlen( name );
++    if (!n || n > 255 || snprintf( path, sizeof(path), "%s/", dir ) >= (int)sizeof(path)) return;
++    for (i = 0; i < n; i++)
++    {
++        char c = name[i];
++        if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
++        if (c == '/' || c == '\\') return;
++        key[0] = c; key[1] = 0;
++        if (strlen( path ) + 1 >= sizeof(path) - 8) return;
++        strcat( path, key );
++    }
++    strcat( path, ".env" );
++    if (!(f = fopen( path, "r" ))) return;
++    while (fgets( line, sizeof(line), f ))
++    {
++        char *eq = strchr( line, '=' ), *end;
++        if (!eq || strncmp( line, "MTL_HUD_", 8 )) continue;
++        *eq = 0;
++        if ((end = strpbrk( eq + 1, "\r\n" ))) *end = 0;
++        setenv( line, eq + 1, 1 );
++    }
++    fclose( f );
++}
++#endif
++
+ int main( int argc, char *argv[] )
+ {
++#ifdef __APPLE__
++    isthmus_apply_program_env( argc, argv );
++#endif
+     void *handle;
+ 
+     init_reserved_areas();

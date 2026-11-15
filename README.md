@@ -16,6 +16,9 @@ D3DMetal if you import it.
   and Wine's own renderer for DirectX 9. You can override this per game.
 - **Built-in fixes.** A community recipe database applies known-good settings
   per game and warns you before launching games whose anti-cheat can't run.
+- **FPS counter.** Apple's Metal Performance HUD, per bottle or per game,
+  including games started from Steam. Steam's own counter doesn't work
+  under Wine; this replaces it. ⇧⌘F toggles it.
 - **Fast defaults.** MSync, AVX advertising through Rosetta, shader caches
   per bottle, and Retina mode with the DPI adjusted to match.
 - **Scriptable.** Everything the app does is also available through the
@@ -88,7 +91,7 @@ isthmus games                          # list installed games
 isthmus play -b Games --game "Hades"   # launch by name
 isthmus run -b Games ~/Downloads/setup.exe
 isthmus run -b Games --graphics dxvk path/to/game.exe
-isthmus bottle set Games hud on        # Metal performance HUD
+isthmus bottle set Games fps compact   # FPS counter: off, fps, compact, detailed, full
 isthmus shortcut -b Games --game "Hades"   # add to Launchpad
 isthmus selftest                       # check every graphics backend on this Mac
 isthmus inspect path/to/game.exe       # what Isthmus detects (DirectX version, imports, icon)

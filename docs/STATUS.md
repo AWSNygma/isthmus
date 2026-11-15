@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated for Isthmus 0.2.2, engine 26.3.0-i1 (November 2026).*
+*Last updated for Isthmus 0.3.0, engine 26.3.0-i2 (November 2026).*
 
 Isthmus is an early, working release. The engine, the app, the CLI and the
 test tooling are complete enough to install a store, install a game and play
@@ -12,8 +12,8 @@ designed to work.
 
 | Release | What it is |
 |---|---|
-| [v0.2.2](https://github.com/AWSNygma/isthmus/releases) | App: DMG and zip, Apple silicon, ad-hoc signed |
-| [engine-26.3.0-i1](https://github.com/AWSNygma/isthmus/releases/tag/engine-26.3.0-i1) | Engine (280 MB), downloaded by the app on first run |
+| [v0.3.0](https://github.com/AWSNygma/isthmus/releases) | App: DMG and zip, Apple silicon, ad-hoc signed |
+| [engine-26.3.0-i2](https://github.com/AWSNygma/isthmus/releases/tag/engine-26.3.0-i2) | Engine (280 MB), downloaded by the app on first run |
 
 The engine:
 
@@ -25,8 +25,9 @@ The engine:
 - **vkd3d**, in the Wine tree
 - **Wine Mono** 10.4.1 and **Wine Gecko** 2.47.4
 - **GStreamer** 1.28
-- One Isthmus patch: Steam's web helper renders in software. Without it,
-  Steam windows are black.
+- Two Isthmus patches: Steam's web helper renders in software (without it,
+  Steam windows are black), and the loader applies per-game FPS counter
+  settings inside each game's process.
 
 ## Verified
 
@@ -42,6 +43,8 @@ All of this was tested on an M5 Max (36 GB) running macOS 26.6.2.
 | Library: games found through Start Menu shortcuts | ✅ with a Wine-created `.lnk` |
 | Launchpad shortcut: launches through the CLI, exits cleanly | ✅ |
 | Self-test, from the published DMG on a clean data folder | ✅ 15/15 required checks |
+| FPS counter on DXMT, DXVK, D3DMetal, wined3d (D3D11 and D3D9, 64- and 32-bit) | ✅ screenshots of a rendering test window |
+| FPS counter for a game started by another program (the Steam case), on and off | ✅ with a stand-in launcher; not yet with a real Steam game |
 | Self-test with D3DMetal 4.0b3 imported | ✅ 17/17, including D3D11 and D3D12 on D3DMetal |
 | Switching backend for a Steam game | ✅ healthy, frozen, and frozen-with-another-program cases tested in 0.2.2 (frozen simulated with SIGSTOP) |
 | Opening, restarting and quitting Steam while it runs | ✅ forwards to the running Steam; Quit leaves other programs running |

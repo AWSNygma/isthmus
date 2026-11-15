@@ -55,6 +55,7 @@ struct GameMenu: View {
                     .disabled(b == .d3dmetal && model.d3dmetal == nil)
             }
         }
+        Button("Play with FPS Counter") { model.play(game, overlay: .compact) }
         Divider()
         Button("Game Settings…") { settingsFor = game }
         Button("Add to Launchpad") { model.createShortcut(game) }

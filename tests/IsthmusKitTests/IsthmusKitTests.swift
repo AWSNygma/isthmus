@@ -142,10 +142,11 @@ final class EnvironmentTests: XCTestCase {
     }
 
     func testToggles() {
-        let e = env(.dxmt) { $0.msync = false; $0.advertiseAVX = false; $0.metalHUD = true; $0.metalFXUpscaling = true }
+        let e = env(.dxmt) { $0.msync = false; $0.advertiseAVX = false; $0.overlay = .compact; $0.metalFXUpscaling = true }
         XCTAssertNil(e["WINEMSYNC"])
         XCTAssertNil(e["ROSETTA_ADVERTISE_AVX"])
         XCTAssertEqual(e["MTL_HUD_ENABLED"], "1")
+        XCTAssertEqual(e["MTL_HUD_ELEMENTS"], "fps,frameinterval,gputime", "hud on = compact")
         XCTAssertEqual(e["DXMT_ENABLE_NVEXT"], "1")
         XCTAssertTrue(e["WINEDLLOVERRIDES"]!.contains("nvngx=b"))
     }

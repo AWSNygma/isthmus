@@ -288,10 +288,11 @@ final class AppModel {
 
     // MARK: Launching
 
-    func play(_ game: Game, graphics: GraphicsBackend? = nil) {
+    func play(_ game: Game, graphics: GraphicsBackend? = nil, overlay: PerformanceOverlay? = nil) {
         guard let b = bottle(game.bottleID) else { return }
         var target = game.target(in: b)
         target.graphicsOverride = graphics
+        target.overlayOverride = overlay
         launch(target, title: game.name, in: b)
     }
 
@@ -312,6 +313,16 @@ final class AppModel {
     func open(_ store: InstalledStore) {
         guard let b = bottle(store.bottleID) else { return }
         launch(LaunchTarget(program: store.executable.path), title: store.name, in: b)
+    }
+
+    /// FPS counter for every bottle at once (View menu).
+    var overlayEverywhere: PerformanceOverlay {
+        let set = Set(bottles.map(\.config.settings.overlay))
+        return set.count == 1 ? set.first! : .off
+    }
+
+    func setOverlayEverywhere(_ o: PerformanceOverlay) {
+        for b in bottles { update(b.id) { $0.settings.overlay = o } }
     }
 
     func runTool(_ tool: String, in bottle: Bottle) {

@@ -29,6 +29,8 @@ public struct LaunchTarget: Sendable, Equatable {
     public var inspect: URL?
     /// One-off backend for this launch (CLI `--graphics`, "Run with…" menu).
     public var graphicsOverride: GraphicsBackend?
+    /// One-off FPS counter for this launch ("Play with FPS counter").
+    public var overlayOverride: PerformanceOverlay?
 
     public init(program: String, arguments: [String] = [], steamAppID: Int? = nil,
                 epicAppName: String? = nil, gogID: String? = nil, inspect: URL? = nil,
@@ -56,7 +58,9 @@ public struct EffectiveSettings: Sendable, Equatable {
     public var graphics: GraphicsBackend
     public var msync: Bool
     public var advertiseAVX: Bool
-    public var metalHUD: Bool
+    public var overlay: PerformanceOverlay
+    public var overlayPosition: OverlayPosition
+    public var overlayShowRange: Bool
     public var rayTracing: Bool
     public var metalFXUpscaling: Bool
     public var largeAddressAware: Bool
@@ -71,7 +75,9 @@ public struct EffectiveSettings: Sendable, Equatable {
             graphics: p.graphics ?? r.graphics ?? b.graphics,
             msync: p.msync ?? r.msync ?? b.msync,
             advertiseAVX: p.advertiseAVX ?? r.advertiseAVX ?? b.advertiseAVX,
-            metalHUD: p.metalHUD ?? b.metalHUD,
+            overlay: p.overlay ?? b.overlay,
+            overlayPosition: b.overlayPosition,
+            overlayShowRange: b.overlayShowRange,
             rayTracing: p.rayTracing ?? r.rayTracing ?? b.rayTracing,
             metalFXUpscaling: p.metalFXUpscaling ?? r.metalFXUpscaling ?? b.metalFXUpscaling,
             largeAddressAware: b.largeAddressAware,
@@ -109,6 +115,7 @@ public struct LaunchPlanner: Sendable {
             recipes.recipe(exeName: exeName, steamAppID: target.steamAppID, epicAppName: target.epicAppName, gogID: target.gogID)
         var effective = EffectiveSettings.merge(bottle: bottle.config.settings, recipe: recipe?.settings, program: program)
         if let forced = target.graphicsOverride { effective.graphics = forced }
+        if let o = target.overlayOverride { effective.overlay = o }
 
         let dx: DirectXLevel = inspectURL.flatMap { try? PEFile(url: $0).directXLevel } ?? .unknown
         let backend = BackendResolver.resolve(effective.graphics, directX: dx, d3dmetalAvailable: d3dmetal != nil)
@@ -220,7 +227,10 @@ public struct LaunchPlanner: Sendable {
 
         if s.msync { env["WINEMSYNC"] = "1" }
         if s.advertiseAVX { env["ROSETTA_ADVERTISE_AVX"] = "1" }
-        if s.metalHUD { env["MTL_HUD_ENABLED"] = "1" }
+        env.merge(hudEnvironment(s.overlay, position: s.overlayPosition, showRange: s.overlayShowRange)) { $1 }
+        // Per-game overrides for programs started by other programs (games
+        // launched by Steam); read by the engine's loader (patch 0002).
+        env["ISTHMUS_PROGRAM_ENV"] = bottle.cache.appendingPathComponent("program-env").path
         if s.largeAddressAware { env["WINE_LARGE_ADDRESS_AWARE"] = "1" }
 
         var overrides = ["winemenubuilder.exe": "d"]   // no desktop/file-association spam
@@ -237,7 +247,6 @@ public struct LaunchPlanner: Sendable {
             overrides["d3d11"] = "b"; overrides["d3d10core"] = "b"
             env["DXVK_ASYNC"] = "1"
             env["DXVK_STATE_CACHE_PATH"] = bottle.cache.path
-            if s.metalHUD { env["DXVK_HUD"] = "fps,devinfo" }
         case .wined3d, .auto:
             // wined3d's Vulkan renderer on MoltenVK rejects some SM4 shaders;
             // the GL renderer passes our D3D9/10/11 probes.
@@ -249,6 +258,17 @@ public struct LaunchPlanner: Sendable {
         for (k, v) in s.environment { env[k] = v }
         return env
     }
+}
+
+/// Metal Performance HUD variables for an overlay choice. "Off" is explicit
+/// (MTL_HUD_ENABLED=0) so a HUD inherited from a parent process is turned off.
+public func hudEnvironment(_ overlay: PerformanceOverlay, position: OverlayPosition, showRange: Bool) -> [String: String] {
+    guard let elements = overlay.elements else { return ["MTL_HUD_ENABLED": "0"] }
+    var env = ["MTL_HUD_ENABLED": "1", "MTL_HUD_ELEMENTS": elements, "MTL_HUD_ALIGNMENT": position.rawValue,
+               "MTL_HUD_SHOW_METRICS_RANGE": showRange ? "1" : "0"]
+    // Small layouts read better slightly larger than Apple's 20% default.
+    if overlay == .fps || overlay == .compact { env["MTL_HUD_SCALE"] = "0.25" }
+    return env
 }
 
 /// `en_US.UTF-8`-style locale from the user's macOS language settings.

@@ -15,6 +15,58 @@ public enum WindowsVersion: String, Codable, Sendable, CaseIterable, Identifiabl
 }
 
 /// Which translation layer handles Direct3D.
+/// On-screen performance overlay. Isthmus uses Apple's Metal Performance
+/// HUD, which works on every backend (DXMT, DXVK, D3DMetal and Wine's
+/// renderer all end up in Metal). Steam's own FPS counter can't work: it
+/// draws through Steam's overlay injection, which needs Windows' GPU stack.
+public enum PerformanceOverlay: String, Codable, Sendable, CaseIterable, Identifiable {
+    case off
+    /// Just the frame rate, large and unobtrusive.
+    case fps
+    /// FPS, frame time and GPU time.
+    case compact
+    /// Apple's default layout: device, resolution, memory, FPS, frame-time graph.
+    case detailed
+    /// Everything, including shader compilation and the frame-time histogram.
+    case full
+
+    public var id: String { rawValue }
+    public var displayName: String {
+        switch self {
+        case .off: "Off"
+        case .fps: "FPS only"
+        case .compact: "FPS, frame and GPU time"
+        case .detailed: "Detailed"
+        case .full: "Everything"
+        }
+    }
+
+    /// MTL_HUD_ELEMENTS value.
+    var elements: String? {
+        switch self {
+        case .off: nil
+        case .fps: "FPS"
+        case .compact: "fps,frameinterval,gputime"
+        case .detailed: "device,rosetta,layersize,memory,fps,gputime,frameinterval,frameintervalgraph"
+        case .full: "device,rosetta,layersize,layerscale,memory,thermal,fps,fpsgraph,gputime,frameinterval,frameintervalgraph,frameintervalhistogram,metalcpu,shaders,disk"
+        }
+    }
+}
+
+public enum OverlayPosition: String, Codable, Sendable, CaseIterable, Identifiable {
+    case topLeft = "topleft", topRight = "topright", bottomLeft = "bottomleft", bottomRight = "bottomright", topCenter = "topcenter"
+    public var id: String { rawValue }
+    public var displayName: String {
+        switch self {
+        case .topLeft: "Top left"
+        case .topRight: "Top right"
+        case .bottomLeft: "Bottom left"
+        case .bottomRight: "Bottom right"
+        case .topCenter: "Top center"
+        }
+    }
+}
+
 public enum GraphicsBackend: String, Codable, Sendable, CaseIterable, Identifiable {
     /// Pick per game: D3DMetal when imported, otherwise DXMT for D3D10/11
     /// and Wine's vkd3d for D3D12.
@@ -48,8 +100,16 @@ public struct BottleSettings: Codable, Sendable, Equatable {
     public var msync: Bool = true
     /// Tell Rosetta 2 to advertise AVX/AVX2 (macOS 15+). Many recent games require it.
     public var advertiseAVX: Bool = true
-    /// Metal performance HUD overlay.
-    public var metalHUD: Bool = false
+    /// Performance overlay (FPS counter). Replaces the old on/off `metalHUD`.
+    public var overlay: PerformanceOverlay = .off
+    public var overlayPosition: OverlayPosition = .topLeft
+    /// Show min/max over the last 1200 frames next to the averages.
+    public var overlayShowRange: Bool = false
+    /// Kept for older bottle.json files and the CLI `hud on|off` shorthand.
+    public var metalHUD: Bool {
+        get { overlay != .off }
+        set { overlay = newValue ? (overlay == .off ? .compact : overlay) : .off }
+    }
     /// Render at native Retina resolution instead of scaled points.
     public var retinaMode: Bool = false
     /// D3DMetal ray tracing (M3 and newer).
@@ -73,7 +133,7 @@ public struct BottleSettings: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case windowsVersion, graphics, msync, advertiseAVX, metalHUD, retinaMode, rayTracing, metalFXUpscaling
+        case windowsVersion, graphics, msync, advertiseAVX, metalHUD, overlay, overlayPosition, overlayShowRange, retinaMode, rayTracing, metalFXUpscaling
         case leftOptionIsAlt, rightOptionIsAlt, commandIsCtrl, largeAddressAware, environment, dllOverrides, logging
     }
 
@@ -85,7 +145,11 @@ public struct BottleSettings: Codable, Sendable, Equatable {
         graphics = try c.decodeIfPresent(GraphicsBackend.self, forKey: .graphics) ?? d.graphics
         msync = try c.decodeIfPresent(Bool.self, forKey: .msync) ?? d.msync
         advertiseAVX = try c.decodeIfPresent(Bool.self, forKey: .advertiseAVX) ?? d.advertiseAVX
-        metalHUD = try c.decodeIfPresent(Bool.self, forKey: .metalHUD) ?? d.metalHUD
+        if let o = try c.decodeIfPresent(PerformanceOverlay.self, forKey: .overlay) { overlay = o }
+        else if try c.decodeIfPresent(Bool.self, forKey: .metalHUD) == true { overlay = .detailed }   // pre-0.3 files
+        else { overlay = d.overlay }
+        overlayPosition = try c.decodeIfPresent(OverlayPosition.self, forKey: .overlayPosition) ?? d.overlayPosition
+        overlayShowRange = try c.decodeIfPresent(Bool.self, forKey: .overlayShowRange) ?? d.overlayShowRange
         retinaMode = try c.decodeIfPresent(Bool.self, forKey: .retinaMode) ?? d.retinaMode
         rayTracing = try c.decodeIfPresent(Bool.self, forKey: .rayTracing) ?? d.rayTracing
         metalFXUpscaling = try c.decodeIfPresent(Bool.self, forKey: .metalFXUpscaling) ?? d.metalFXUpscaling
@@ -99,6 +163,20 @@ public struct BottleSettings: Codable, Sendable, Equatable {
     }
 
     static let defaults = BottleSettings()
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(windowsVersion, forKey: .windowsVersion); try c.encode(graphics, forKey: .graphics)
+        try c.encode(msync, forKey: .msync); try c.encode(advertiseAVX, forKey: .advertiseAVX)
+        try c.encode(overlay, forKey: .overlay); try c.encode(overlayPosition, forKey: .overlayPosition)
+        try c.encode(overlayShowRange, forKey: .overlayShowRange)
+        try c.encode(retinaMode, forKey: .retinaMode); try c.encode(rayTracing, forKey: .rayTracing)
+        try c.encode(metalFXUpscaling, forKey: .metalFXUpscaling)
+        try c.encode(leftOptionIsAlt, forKey: .leftOptionIsAlt); try c.encode(rightOptionIsAlt, forKey: .rightOptionIsAlt)
+        try c.encode(commandIsCtrl, forKey: .commandIsCtrl); try c.encode(largeAddressAware, forKey: .largeAddressAware)
+        try c.encode(environment, forKey: .environment); try c.encode(dllOverrides, forKey: .dllOverrides)
+        try c.encode(logging, forKey: .logging)
+    }
 }
 
 /// Per-program overrides. `nil` means "inherit from bottle / recipe".
@@ -106,7 +184,7 @@ public struct ProgramSettings: Codable, Sendable, Equatable {
     public var graphics: GraphicsBackend?
     public var msync: Bool?
     public var advertiseAVX: Bool?
-    public var metalHUD: Bool?
+    public var overlay: PerformanceOverlay?
     public var rayTracing: Bool?
     public var metalFXUpscaling: Bool?
     public var arguments: [String]?

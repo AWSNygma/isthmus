@@ -458,3 +458,75 @@ final class LauncherRestartRuleTests: XCTestCase {
         XCTAssertEqual(r?.settings.graphics, .dxmt, "importing D3DMetal must not change the Steam client's runtime")
     }
 }
+
+final class OverlayTests2: XCTestCase {
+    func env(_ mutate: (inout EffectiveSettings) -> Void) -> [String: String] {
+        let b = Bottle(url: URL(fileURLWithPath: "/tmp/b"), config: BottleConfig(id: "b", name: "B"))
+        var s = EffectiveSettings.merge(bottle: BottleSettings(), recipe: nil, program: ProgramSettings())
+        mutate(&s)
+        return LaunchPlanner.environment(engineRoot: URL(fileURLWithPath: "/E"), bottle: b, settings: s, backend: .dxmt, base: [:])
+    }
+
+    func testOverlayEnvironment() {
+        XCTAssertEqual(env { _ in }["MTL_HUD_ENABLED"], "0", "off is explicit so a HUD-enabled Steam doesn't leak it into games")
+        let fps = env { $0.overlay = .fps; $0.overlayPosition = .bottomRight }
+        XCTAssertEqual(fps["MTL_HUD_ENABLED"], "1"); XCTAssertEqual(fps["MTL_HUD_ELEMENTS"], "FPS")
+        XCTAssertEqual(fps["MTL_HUD_ALIGNMENT"], "bottomright"); XCTAssertEqual(fps["MTL_HUD_SHOW_METRICS_RANGE"], "0", "explicit so an inherited value cannot leak in")
+        let full = env { $0.overlay = .full; $0.overlayShowRange = true }
+        XCTAssertTrue(full["MTL_HUD_ELEMENTS"]!.contains("shaders")); XCTAssertEqual(full["MTL_HUD_SHOW_METRICS_RANGE"], "1")
+        XCTAssertNil(full["MTL_HUD_SCALE"])
+        XCTAssertNil(env { $0.overlay = .detailed }["DXVK_HUD"], "one overlay, not two")
+    }
+
+    func testLayering() {
+        var b = BottleSettings(); b.overlay = .fps
+        var p = ProgramSettings(); p.overlay = .off
+        XCTAssertEqual(EffectiveSettings.merge(bottle: b, recipe: nil, program: p).overlay, .off, "per-game override wins")
+        XCTAssertEqual(EffectiveSettings.merge(bottle: b, recipe: nil, program: ProgramSettings()).overlay, .fps)
+    }
+
+    func testMigrationAndRoundTrip() throws {
+        let old = try JSONDecoder().decode(BottleSettings.self, from: Data(#"{"metalHUD":true}"#.utf8))
+        XCTAssertEqual(old.overlay, .detailed, "pre-0.3 HUD-on bottles keep a full HUD")
+        XCTAssertEqual(try JSONDecoder().decode(BottleSettings.self, from: Data("{}".utf8)).overlay, .off)
+        var s = BottleSettings(); s.overlay = .compact; s.overlayPosition = .topCenter; s.overlayShowRange = true; s.msync = false
+        let back = try JSONDecoder().decode(BottleSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back, s)
+    }
+}
+
+final class ProgramEnvTests: TempHomeTestCase {
+    func testSyncWritesPerGameFiles() throws {
+        var b = try BottleStore(paths: paths).create(name: "PE")
+        b.config.settings.overlay = .fps
+        let exe = b.driveC.appendingPathComponent("Games/Hero/HERO.EXE")
+        let game = Game(bottleID: b.id, source: .pinned, storeID: "x", name: "Hero", installDirectory: exe.deletingLastPathComponent(), executable: exe, artwork: nil)
+        ProgramEnv.sync(b, games: [game], recipes: RecipeBook(recipes: []))
+        let file = ProgramEnv.directory(b).appendingPathComponent("hero.exe.env")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("MTL_HUD_ENABLED=1\n")); XCTAssertTrue(text.contains("MTL_HUD_ELEMENTS=FPS\n"))
+        XCTAssertFalse(text.contains("WINE"), "loader only honours MTL_HUD_*")
+
+        // Per-game off overrides an on bottle default.
+        b.config.programs[game.target(in: b).settingsKey(in: b)] = { var p = ProgramSettings(); p.overlay = .off; return p }()
+        ProgramEnv.sync(b, games: [game], recipes: RecipeBook(recipes: []))
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "MTL_HUD_ENABLED=0\n")
+
+        // Games that disappear lose their files.
+        ProgramEnv.sync(b, games: [], recipes: RecipeBook(recipes: []))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testFileNames() {
+        XCTAssertEqual(ProgramEnv.fileName(forExecutable: #"C:\Program Files\Game\Game.EXE"#), "game.exe.env")
+        XCTAssertEqual(ProgramEnv.fileName(forExecutable: "/x/y/OneMoreLawn.exe"), "onemorelawn.exe.env")
+        XCTAssertNil(ProgramEnv.fileName(forExecutable: ""))
+    }
+
+    func testEnvironmentPointsLoaderAtDirectory() throws {
+        let b = try BottleStore(paths: paths).create(name: "PE2")
+        let s = EffectiveSettings.merge(bottle: BottleSettings(), recipe: nil, program: ProgramSettings())
+        let env = LaunchPlanner.environment(engineRoot: URL(fileURLWithPath: "/E"), bottle: b, settings: s, backend: .dxmt, base: [:])
+        XCTAssertEqual(env["ISTHMUS_PROGRAM_ENV"], ProgramEnv.directory(b).path)
+    }
+}

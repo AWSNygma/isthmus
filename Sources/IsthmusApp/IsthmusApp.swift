@@ -25,6 +25,14 @@ struct IsthmusApp: App {
             }
             CommandGroup(after: .toolbar) {
                 Button("Refresh Library") { model.reload() }.keyboardShortcut("r")
+                Divider()
+                Picker("FPS Counter", selection: Binding(get: { model.overlayEverywhere }, set: { model.setOverlayEverywhere($0) })) {
+                    ForEach(PerformanceOverlay.allCases) { Text($0.displayName).tag($0) }
+                }
+                Button(model.overlayEverywhere == .off ? "Show FPS Counter" : "Hide FPS Counter") {
+                    model.setOverlayEverywhere(model.overlayEverywhere == .off ? .compact : .off)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .help) {
                 Link("Isthmus on GitHub", destination: URL(string: "https://github.com/\(Isthmus.repository)")!)

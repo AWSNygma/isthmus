@@ -25,6 +25,7 @@ struct BottleDetailView: View {
                 header(original)
                 LaunchersSection(bottle: original)
                 GraphicsSection(settings: binding.config.settings)
+                OverlaySection(settings: binding.config.settings)
                 PerformanceSection(settings: binding.config.settings)
                 InputSection(settings: binding.config.settings)
                 Section("Windows") {
@@ -128,7 +129,6 @@ struct GraphicsSection: View {
                 Label("D3DMetal isn't imported yet. Games will fall back to DXMT or vkd3d.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
-            Toggle("Metal performance HUD", isOn: $settings.metalHUD)
             Toggle(isOn: $settings.retinaMode) {
                 Text("High resolution (Retina) mode")
                 Text("Sharper, but renders 4× the pixels. Takes effect when programs restart.")
@@ -145,6 +145,30 @@ struct GraphicsSection: View {
             Text("Graphics")
         } footer: {
             Text("Automatic picks per game: D3DMetal for DirectX 12 when imported, DXMT for DirectX 10/11, Wine's renderer for DirectX 9.")
+        }
+    }
+}
+
+struct OverlaySection: View {
+    @Binding var settings: BottleSettings
+    var body: some View {
+        Section {
+            Picker("FPS counter", selection: $settings.overlay) {
+                ForEach(PerformanceOverlay.allCases) { Text($0.displayName).tag($0) }
+            }
+            if settings.overlay != .off {
+                Picker("Position", selection: $settings.overlayPosition) {
+                    ForEach(OverlayPosition.allCases) { Text($0.displayName).tag($0) }
+                }
+                Toggle(isOn: $settings.overlayShowRange) {
+                    Text("Show minimum and maximum")
+                    Text("Adds the range over the last 1,200 frames next to each average.")
+                }
+            }
+        } header: {
+            Text("FPS Counter")
+        } footer: {
+            Text("Uses Apple's Metal Performance HUD, which works with every graphics backend. Steam's own FPS counter can't work under Isthmus. Changes apply the next time a game starts, including games you start from Steam (no Steam restart needed). Shortcut: ⇧⌘F turns it on or off for all bottles. Games run slower when out of focus, so the number drops while another window is in front.")
         }
     }
 }
@@ -304,7 +328,10 @@ struct GameSettingsSheet: View {
                         Text("Bottle default").tag(GraphicsBackend?.none)
                         ForEach(GraphicsBackend.allCases) { Text($0.displayName).tag(Optional($0)) }
                     }
-                    OverridePicker(title: "Metal HUD", value: $settings.metalHUD)
+                    Picker("FPS counter", selection: $settings.overlay) {
+                        Text("Bottle default").tag(PerformanceOverlay?.none)
+                        ForEach(PerformanceOverlay.allCases) { Text($0.displayName).tag(Optional($0)) }
+                    }
                     OverridePicker(title: "Ray tracing", value: $settings.rayTracing)
                     OverridePicker(title: "DLSS → MetalFX", value: $settings.metalFXUpscaling)
                 }

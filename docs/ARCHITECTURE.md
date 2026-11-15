@@ -152,6 +152,20 @@ Other launch details:
 - A display-sleep assertion is held while a game runs, because controller
   input doesn't count as user activity.
 
+## FPS counter
+
+The counter is Apple's Metal Performance HUD. All backends end in Metal, so
+`MTL_HUD_ENABLED`/`MTL_HUD_ELEMENTS`/`MTL_HUD_ALIGNMENT` work everywhere.
+
+The hard part is games started by Steam: they inherit Steam's environment,
+not the launch Isthmus planned. Engine patch 0002 adds a hook to the Wine
+loader (`loader/main.c`), which runs in every Wine process before ntdll and
+before any Metal device exists. It reads `$ISTHMUS_PROGRAM_ENV/<exe>.env`
+for the executable being started and applies `MTL_HUD_*` lines only.
+`ProgramEnv.sync` writes one file per library game before each launch. Its
+value is the game's effective counter setting, and off is written as
+`MTL_HUD_ENABLED=0`, so a per-game "off" beats a HUD-enabled launcher.
+
 ## Library
 
 `GameLibrary.scan` reads each store's own metadata:

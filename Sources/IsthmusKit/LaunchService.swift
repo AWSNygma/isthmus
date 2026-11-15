@@ -25,6 +25,12 @@ public struct LaunchService: Sendable {
         }
         try setup.applySettings(&bottle)
 
+        // Per-game FPS counter files, for games a launcher starts.
+        ProgramEnv.sync(bottle, games: GameLibrary.scan(bottle), recipes: recipes)
+        if let o = target.overlayOverride, let exe = target.inspect ?? (target.program.hasPrefix("/") ? URL(fileURLWithPath: target.program) : nil) {
+            ProgramEnv.writeOverride(bottle, executable: exe, overlay: o)
+        }
+
         let planner = LaunchPlanner(paths: paths, recipes: recipes)
         var plan = try planner.plan(bottle: bottle, target: target)
         if let r = plan.recipe, r.status == .blocked {
