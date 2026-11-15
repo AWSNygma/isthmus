@@ -119,9 +119,10 @@ the real thing:
   recipe JSON, builds the Windows probes, and builds and uploads the app
   bundle. It has passed.
 - **Release** (`release.yml`) builds and publishes the app when a `v*` tag is
-  pushed. It signs and notarizes when the Developer ID secrets are set. It
-  hasn't run yet: v0.1.0 through v0.2.1 were built locally with the same
-  script.
+  pushed. It signs and notarizes when the Developer ID secrets are set. Its
+  first run (v0.2.2) failed on a missing mingw install; that's fixed, and it
+  now leaves a release that already exists alone. v0.1.0 through v0.2.2 were
+  built locally with the same script.
 - **Engine** (`engine.yml`) builds the engine from source when run manually
   or when an `engine-*` tag is pushed. It hasn't run yet; the published
   engine was built locally with the same script. Hosted runners are VMs
