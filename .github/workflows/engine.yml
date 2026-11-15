@@ -65,6 +65,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # An engine published by hand (built locally) is left as it is.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; build verified, not re-uploading."
+            exit 0
+          fi
           gh release create "$GITHUB_REF_NAME" .work/out/*.tar.xz .work/out/*.sha256 \
             --title "Engine ${GITHUB_REF_NAME#engine-}" \
             --notes "Built from CodeWeavers CrossOver $(. engine/engine.env; echo $CX_SOURCE_VERSION) LGPL sources by engine/build.sh at ${GITHUB_SHA}. See THIRD_PARTY_NOTICES.md."
