@@ -43,7 +43,8 @@ for g in dxmt dxvk wined3d dxmt; do
 done
 probe 1 "d3d12 / vkd3d" wined3d "$PROBES/d3d12_probe.exe"
 if [[ -n "${D3DMETAL_TOOLKIT:-}" ]]; then
-  "$CLI" d3dmetal import "$D3DMETAL_TOOLKIT" && probe 1 "d3d12 / d3dmetal" d3dmetal "$PROBES/d3d12_probe.exe"
+  "$CLI" d3dmetal import "$D3DMETAL_TOOLKIT" && probe 1 "d3d12 / d3dmetal" d3dmetal "$PROBES/d3d12_probe.exe" \
+    && EXPECT="impl=d3dmetal" probe 1 "d3d11 x64 / d3dmetal" d3dmetal "$PROBES/d3d11_probe.exe"
 else
   printf '%-28s %s\n' "d3d12 / d3dmetal" "SKIP set D3DMETAL_TOOLKIT=<GPTK dmg> to test" | tee -a "$REPORT"
 fi

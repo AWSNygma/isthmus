@@ -1,6 +1,6 @@
 # Project status
 
-*Last updated for Isthmus 0.2.1, engine 26.3.0-i1 (November 2026).*
+*Last updated for Isthmus 0.2.2, engine 26.3.0-i1 (November 2026).*
 
 Isthmus is an early, working release. The engine, the app, the CLI and the
 test tooling are complete enough to install a store, install a game and play
@@ -12,7 +12,7 @@ designed to work.
 
 | Release | What it is |
 |---|---|
-| [v0.2.1](https://github.com/AWSNygma/isthmus/releases) | App: DMG and zip, Apple silicon, ad-hoc signed |
+| [v0.2.2](https://github.com/AWSNygma/isthmus/releases) | App: DMG and zip, Apple silicon, ad-hoc signed |
 | [engine-26.3.0-i1](https://github.com/AWSNygma/isthmus/releases/tag/engine-26.3.0-i1) | Engine (280 MB), downloaded by the app on first run |
 
 The engine:
@@ -42,7 +42,9 @@ All of this was tested on an M5 Max (36 GB) running macOS 26.6.2.
 | Library: games found through Start Menu shortcuts | ✅ with a Wine-created `.lnk` |
 | Launchpad shortcut: launches through the CLI, exits cleanly | ✅ |
 | Self-test, from the published DMG on a clean data folder | ✅ 15/15 required checks |
-| Switching backend for a Steam game | ⚠️ partly: the restart was tested in 0.2.0 with a stand-in game; 0.2.1's live detection was checked read-only against a real running Steam, but the restart hasn't been re-run with it |
+| Self-test with D3DMetal 4.0b3 imported | ✅ 17/17, including D3D11 and D3D12 on D3DMetal |
+| Switching backend for a Steam game | ✅ healthy, frozen, and frozen-with-another-program cases tested in 0.2.2 (frozen simulated with SIGSTOP) |
+| Opening, restarting and quitting Steam while it runs | ✅ forwards to the running Steam; Quit leaves other programs running |
 | Unit tests | ✅ 54 passing, including on a case-sensitive fresh clone |
 
 The self-test covers:
@@ -59,10 +61,9 @@ The self-test covers:
 These are implemented and unit-tested, but haven't been exercised against
 the real thing:
 
-- **D3DMetal.** The importer handles Apple's Game Porting Toolkit `.dmg`
-  (nested images, license prompts). Nobody has imported it yet, so the
-  "DirectX 12 via D3DMetal" check is always skipped. Whether Apple's current
-  D3DMetal works with CodeWeavers' 26.3 hooks is still an open question.
+- **D3DMetal games.** Game Porting Toolkit 4.0b3 imports, and the D3D11 and
+  D3D12 self-test checks pass on it (it reports its GPU as "AMD
+  Compatibility Mode"). No game has been played on D3DMetal yet.
 - **Store launchers other than Steam:** Epic, GOG Galaxy, Battle.net, EA app,
   Ubisoft Connect. Their installers' download URLs were checked to resolve,
   but installing and running them hasn't been tested.
@@ -129,8 +130,7 @@ the real thing:
 ## Next
 
 1. Test more real games (most valuable), and record results as recipes.
-2. Import D3DMetal and run the self-test, to settle whether it works with
-   the CodeWeavers 26.3 hooks.
+2. Play a DirectX 12 game on D3DMetal.
 3. Sign and notarize the app, and add Sparkle app updates.
 4. Run the engine workflow once, and publish future engines from CI.
 5. Investigate Game Mode via a bundled loader.

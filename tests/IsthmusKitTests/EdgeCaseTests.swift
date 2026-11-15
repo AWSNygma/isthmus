@@ -244,19 +244,30 @@ final class WineServerTests: TempHomeTestCase {
           301 /usr/sbin/cfprefsd agent
         15001 C:\windows\system32\explorer.exe /desktop
         16000 C:\Games\Mods\steam.exe.bak.exe
+        40818 /Users/x/Library/Application Support/Isthmus/Bottles/games/prefix/drive_c/Program Files (x86)/Steam/steam.exe
+        40822 /Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-dxmt-f3/lib/wine/../../bin/wineserver
         """#
-        XCTAssertEqual(LauncherProcess.candidates(psOutput: ps, exe: "steam.exe"), [14809])
+        // Wine-started processes show a Windows path; the one Isthmus starts shows the Unix path.
+        XCTAssertEqual(LauncherProcess.candidates(psOutput: ps, exe: "steam.exe"), [14809, 40818])
         let prefix = "/Users/x/Library/Application Support/Isthmus/Bottles/games/prefix"
+        let dxmt = "/Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-dxmt-f3"
+        let d3dm = "/Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-d3dmetal-f3-gptk4.0b3"
+        let loaders: [UInt64: String] = [20420894: dxmt, 20500000: d3dm]
+        // ntdll.so is hardlinked across runtimes, so lsof may name the wrong
+        // one; the winetemp-<loader inode> re-exec link is authoritative.
         let lsof = """
         p14809
         fcwd
         n\(prefix)/drive_c/Program Files (x86)/Steam
         ftxt
-        n/Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-dxmt-f3/lib/wine/x86_64-unix/ntdll.so
+        n/private/var/folders/m4/x/T/winetemp-20420894-14760-1794616967-0/wine
+        ftxt
+        n\(d3dm)/lib/wine/x86_64-unix/ntdll.so
         """
-        XCTAssertEqual(LauncherProcess.runtimeRoot(lsofOutput: lsof, prefix: prefix),
-                       "/Users/x/Library/Application Support/Isthmus/Runtime/26.3.0-i1-dxmt-f3")
-        XCTAssertNil(LauncherProcess.runtimeRoot(lsofOutput: lsof, prefix: "/Users/x/other/prefix"), "Steam in another bottle")
+        XCTAssertEqual(LauncherProcess.runtimeRoot(lsofOutput: lsof, prefix: prefix, loaders: loaders), dxmt)
+        XCTAssertNil(LauncherProcess.runtimeRoot(lsofOutput: lsof, prefix: "/Users/x/other/prefix", loaders: loaders), "Steam in another bottle")
+        let direct = "p1\nn\(prefix)/drive_c/x\nn\(d3dm)/lib/wine/x86_64-unix/wine\n"
+        XCTAssertEqual(LauncherProcess.runtimeRoot(lsofOutput: direct, prefix: prefix, loaders: loaders), d3dm, "no re-exec link: loader path")
         XCTAssertEqual(LaunchService.backendName("/r/Runtime/26.3.0-i1-dxmt-f3"), GraphicsBackend.dxmt.displayName)
         XCTAssertEqual(LaunchService.backendName("/r/Engines/26.3.0-i1"), GraphicsBackend.wined3d.displayName)
     }
@@ -425,5 +436,25 @@ final class SteamArtworkTests: TempHomeTestCase {
         // Old flat layout.
         try Data([1]).write(to: root.appendingPathComponent("appcache/librarycache/7_library_600x900.jpg"))
         XCTAssertEqual(SteamLibrary.artwork(appID: "7", steamRoot: root)?.lastPathComponent, "7_library_600x900.jpg")
+    }
+}
+
+final class LauncherRestartRuleTests: XCTestCase {
+    func testOpeningClientNeverRestarts() {
+        XCTAssertTrue(LaunchService.opensClientOnly(LaunchTarget(program: #"C:\Program Files (x86)\Steam\steam.exe"#)))
+        XCTAssertFalse(LaunchService.opensClientOnly(LaunchTarget(program: "/x/steam.exe", steamAppID: 480)), "a game via Steam")
+        XCTAssertFalse(LaunchService.opensClientOnly(LaunchTarget(program: "com.epicgames.launcher://apps/x", epicAppName: "x")))
+    }
+
+    func testBackendFromRuntimeRoot() {
+        XCTAssertEqual(LaunchService.backend(ofRoot: "/a/Runtime/26.3.0-i1-dxmt-f3"), .dxmt)
+        XCTAssertEqual(LaunchService.backend(ofRoot: "/a/Runtime/26.3.0-i1-d3dmetal-f3-gptk4.0b3"), .d3dmetal)
+        XCTAssertEqual(LaunchService.backend(ofRoot: "/a/Runtime/26.3.0-i1-dxvk-f3"), .dxvk)
+        XCTAssertEqual(LaunchService.backend(ofRoot: "/a/Engines/26.3.0-i1"), .wined3d)
+    }
+
+    func testSteamClientPinned() {
+        let r = RecipeBook.load(paths: IsthmusPaths(root: URL(fileURLWithPath: "/nonexistent"))).recipe(exeName: "steam.exe")
+        XCTAssertEqual(r?.settings.graphics, .dxmt, "importing D3DMetal must not change the Steam client's runtime")
     }
 }

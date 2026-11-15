@@ -73,9 +73,11 @@ int main(void)
 
     /* Which implementation is actually loaded: proves backend selection. */
     const char *impl = GetModuleHandleA("winemetal.dll") ? "dxmt"
-                     /* DXVK's d3d11 omits Wine's D3DKMT forwarders. */
+                     /* D3DMetal's d3d11 lacks D3D11CoreCreateDevice; DXVK's has it but
+                      * omits Wine's D3DKMT forwarders. */
+                     : !GetProcAddress(GetModuleHandleA("d3d11.dll"), "D3D11CoreCreateDevice") ? "d3dmetal"
                      : !GetProcAddress(GetModuleHandleA("d3d11.dll"), "D3DKMTCreateDevice") ? "dxvk"
-                     : GetModuleHandleA("wined3d.dll") ? "wined3d" : "d3dmetal-or-unknown";
+                     : GetModuleHandleA("wined3d.dll") ? "wined3d" : "unknown";
     if (!color_close(px, 51, 153, 230)) FAIL("pixel 0x%08x, expected ~0xffe69933 (gpu %s, impl %s)", px, gpu, impl);
     PASS("impl=%s feature level %x, gpu \"%s\"", impl, fl, gpu);
     return 0;

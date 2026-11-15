@@ -41,7 +41,7 @@ public struct SelfTest: Sendable {
         c.append(Case(name: "DirectX 12 via vkd3d", exe: "d3d12_probe.exe", args: [], graphics: .wined3d, expect: nil, required: true))
         if d3dmetal {
             c.append(Case(name: "DirectX 12 via D3DMetal", exe: "d3d12_probe.exe", args: [], graphics: .d3dmetal, expect: nil, required: true))
-            c.append(Case(name: "DirectX 11 via D3DMetal", exe: "d3d11_probe.exe", args: [], graphics: .d3dmetal, expect: nil, required: true))
+            c.append(Case(name: "DirectX 11 via D3DMetal", exe: "d3d11_probe.exe", args: [], graphics: .d3dmetal, expect: "impl=d3dmetal", required: true))
         }
         c.append(Case(name: "DirectX 9", exe: "d3d9_probe.exe", args: [], graphics: nil, expect: nil, required: true))
         c.append(Case(name: "DirectX 9 (32-bit)", exe: "d3d9_probe32.exe", args: [], graphics: nil, expect: nil, required: true))

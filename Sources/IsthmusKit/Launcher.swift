@@ -317,7 +317,10 @@ public enum WineRunner {
             // Drain what's left, then close.
             pipe.fileHandleForReading.readabilityHandler = nil
             writer.write(pipe.fileHandleForReading.readDataToEndOfFile())
-            writer.write(Data("\n# exited with status \(proc.terminationStatus) at \(Date())\n".utf8), force: true)
+            let how = proc.terminationReason == .uncaughtSignal
+                ? "was killed by signal \(proc.terminationStatus)\(proc.terminationStatus == SIGKILL ? " (Stop All / wineserver -k, or macOS)" : "")"
+                : "exited with status \(proc.terminationStatus)"
+            writer.write(Data("\n# \(how) at \(Date())\n".utf8), force: true)
             writer.close()
             onExit?(proc.terminationStatus)
         }
@@ -347,9 +350,13 @@ public enum WineRunner {
     }
 
     /// `wineserver -k`: stop every process in the bottle.
+    /// Returns once the wineserver is gone, so a launch right afterwards
+    /// starts a fresh server instead of joining the dying one.
     public static func killAll(bottle: Bottle, paths: IsthmusPaths = .default) throws {
         let engine = try EngineManager(paths: paths).engine(bottle.config.engineVersion)
         try Shell.run(engine.wineserver.path, ["-k"], environment: ["WINEPREFIX": bottle.prefix.path], allowFailure: true)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, WineServer.isRunning(bottle) { Thread.sleep(forTimeInterval: 0.2) }
     }
 
     /// `wineserver -w`: wait until the bottle is idle (all processes exited),

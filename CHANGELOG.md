@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.2
+
+Fixes Steam failing to open after importing D3DMetal.
+
+- **Opening Steam while it's already running never restarts it.** The request
+  goes to the running Steam, which brings its window back. Before, if Steam
+  had been started before D3DMetal was imported, clicking Open Steam made
+  Isthmus restart it to switch backends. With a long-running Steam that
+  restart could hang with nothing on screen, and Stop All was the only way
+  out.
+- **The Steam client is pinned to DXMT.** Its own window renders in software,
+  so importing D3DMetal no longer changes which runtime Steam starts with.
+  Games still get their own backend; a game that needs a different one
+  restarts Steam first, as before.
+- **Restart and Quit for store clients.** Right-click Steam in the Library
+  (or use Restart on the bottle page, or `isthmus kill <bottle> --store
+  steam`). This asks Steam to quit, and if it doesn't respond, stops only
+  Steam's own processes. Other games in the bottle keep running. Use this
+  instead of Stop All for a stuck or invisible Steam.
+- **Automatic restarts no longer stall.** If Steam ignores the quit request
+  and nothing else is running in the bottle, Isthmus stops Steam's processes
+  after 20 seconds. If something else is running, it explains instead.
+- **Steam's runtime is detected correctly.** All runtimes share most files
+  through hardlinks, so the path of a loaded library could name the wrong
+  runtime. Detection now uses the loader's inode, which is unique per runtime.
+  It also finds a Steam that Isthmus started (Unix path), not only one Steam
+  restarted itself (Windows path).
+- **Stop All waits for the bottle to shut down,** so a launch right afterwards
+  starts cleanly instead of joining the dying session (that's what killed the
+  first relaunch attempt).
+- **Logs say "killed by signal 9"** instead of "exited with status 9" when a
+  program was stopped.
+- **Self-test checks DirectX 11 on D3DMetal** and identifies it correctly
+  (it was labeled as DXVK).
+
 ## 0.2.1
 
 - **Library:** installed stores (Steam, Epic, …) appear in a Stores row with

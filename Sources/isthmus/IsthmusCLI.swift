@@ -296,7 +296,7 @@ func launch(target: LaunchTarget, title: String, options: LaunchOptions, paths: 
         print(r.output)
         throw ExitCode(r.status)
     }
-    let running = try service.start(plan, bottle: b, title: title)
+    let running = try service.start(plan, bottle: b, title: title, progress: stepPrinter)
     // A store client (Steam, Epic) stays open long after the game; don't keep
     // the display awake for it.
     if options.hold && plan.launcherID != nil { return }
@@ -394,12 +394,21 @@ struct Install: AsyncParsableCommand {
 }
 
 struct Kill: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Stop every Windows program in a bottle.")
+    static let configuration = CommandConfiguration(
+        abstract: "Stop every Windows program in a bottle, or just one store client.",
+        discussion: "isthmus kill Games --store steam   quits only Steam (fixes a stuck or invisible Steam)")
     @OptionGroup var common: Common
     @Argument var bottle: String
+    @Option(help: "Quit only this store client: steam or epic.") var store: String?
     func run() throws {
-        try WineRunner.killAll(bottle: try BottleStore(paths: common.paths).bottle(bottle), paths: common.paths)
-        print("Stopped.")
+        let b = try BottleStore(paths: common.paths).bottle(bottle)
+        if let store {
+            try LaunchService(paths: common.paths).quitStore(store, in: b, progress: stepPrinter)
+            print("\(Catalog.launcher(store)?.name ?? store) is closed.")
+        } else {
+            try WineRunner.killAll(bottle: b, paths: common.paths)
+            print("Stopped.")
+        }
     }
 }
 

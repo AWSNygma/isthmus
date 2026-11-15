@@ -99,6 +99,10 @@ struct LaunchersSection: View {
                     }
                     Spacer()
                     if installed {
+                        if let store = model.stores.first(where: { $0.bottleID == bottle.id && $0.launcherID == l.id }) {
+                            Button("Restart") { model.quit(store, reopen: true) }
+                                .help("Quit and reopen only \(l.name), leaving other programs running")
+                        }
                         Button("Open") { model.run(bottle.unixPath(forWindowsPath: l.executable), in: bottle) }
                     } else {
                         Button("Install") { model.installLauncher(l, in: bottle) }.disabled(model.busy)

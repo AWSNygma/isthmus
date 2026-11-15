@@ -238,7 +238,12 @@ struct StoreTile: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("Open \(store.name)")
+        .help("Open \(store.name). Right-click to restart or quit it.")
+        .contextMenu {
+            Button("Open \(store.name)") { model.open(store) }
+            Button("Restart \(store.name)") { model.quit(store, reopen: true) }
+            Button("Quit \(store.name)") { model.quit(store, reopen: false) }
+        }
         .task(id: store.id) {
             let exe = store.executable
             icon = await Task.detached {

@@ -299,6 +299,16 @@ final class AppModel {
         launch(LaunchTarget(program: url.path, arguments: arguments), title: url.deletingPathExtension().lastPathComponent, in: bottle)
     }
 
+    /// Quit just the store client, optionally reopening it.
+    func quit(_ store: InstalledStore, reopen: Bool) {
+        guard let b = bottle(store.bottleID) else { return }
+        let service = LaunchService(paths: paths, recipes: recipes)
+        perform(reopen ? "Restarting \(store.name)" : "Quitting \(store.name)") { report in
+            try service.quitStore(store.launcherID, in: b) { report($0, nil) }
+            if reopen { await MainActor.run { self.open(store) } }
+        }
+    }
+
     func open(_ store: InstalledStore) {
         guard let b = bottle(store.bottleID) else { return }
         launch(LaunchTarget(program: store.executable.path), title: store.name, in: b)
@@ -318,7 +328,7 @@ final class AppModel {
                 let plan = try await service.prepare(bottle: bottle, target: target, progress: report)
                 report(plan.backend.displayName)
                 let started = Date()
-                let program = try service.start(plan, bottle: bottle, title: title) { status in
+                let program = try service.start(plan, bottle: bottle, title: title, progress: report) { status in
                     Task { @MainActor in
                         self.running.removeAll { !$0.isRunning }
                         // A launcher hand-off (steam -applaunch) exits 0 at once; a
